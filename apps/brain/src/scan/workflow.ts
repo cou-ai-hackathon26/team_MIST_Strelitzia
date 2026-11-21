@@ -6,7 +6,7 @@ import { z } from "zod";
 import type { Finding } from "@prohori/shared";
 import { audit, getFindingByKey, getSettings, listFindings, newId, nowIso, saveFinding, saveReport, getFinding } from "../db";
 import { sendReportEmail } from "../mailer";
-import { hasEquivalentAction, proposeAction } from "../actions";
+import { closeObsoleteProposals, hasEquivalentAction, proposeAction } from "../actions";
 import { classifyCve, extractAdvisory, writeReport, type Classification } from "./ai";
 import {
   buildEvidence, evidenceHash, heldSet, expectedStatus, fallbackRationale, loadHosts, needsTextPath, osvMatch, priorityFor,
@@ -320,6 +320,8 @@ const proposeFixes = createStep({
   inputSchema: IO, outputSchema: IO,
   execute: async ({ inputData }) => {
     const ctx = ctxOf(inputData.scanId);
+    // Pending proposals whose finding got resolved (e.g. after an upgrade) are closed automatically.
+    closeObsoleteProposals((id) => getFinding(id)?.status ?? null);
     if (!getSettings().tier2Enabled) return inputData;
     const propose = (f: Finding, type: "firewall_port" | "upgrade_packages", params: Record<string, unknown>, reason: string) => {
       // don't re-propose what an admin rejected or revised away (rolled_back may be re-proposed)

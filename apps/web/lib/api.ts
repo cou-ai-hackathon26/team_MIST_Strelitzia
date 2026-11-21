@@ -43,6 +43,11 @@ export interface Poll<T> {
   refresh: () => Promise<void>;
 }
 
+/** Ask every live poll on the page to refresh now (e.g. right after an approve/reject/rollback). */
+export function refreshAllPolls() {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event("prohori:refresh"));
+}
+
 /** Fetch `path` now and every `intervalMs` (default 3 s). Pass null to disable. */
 export function usePoll<T>(path: string | null, intervalMs = 3000): Poll<T> {
   const [data, setData] = useState<T | undefined>(undefined);
@@ -76,7 +81,9 @@ export function usePoll<T>(path: string | null, intervalMs = 3000): Poll<T> {
     const t = setInterval(() => {
       if (document.visibilityState === "visible") void refresh();
     }, intervalMs);
-    return () => clearInterval(t);
+    const onRefresh = () => void refresh();
+    window.addEventListener("prohori:refresh", onRefresh);
+    return () => { clearInterval(t); window.removeEventListener("prohori:refresh", onRefresh); };
   }, [path, intervalMs, refresh]);
 
   return { data, error, loading, updatedAt, refresh };

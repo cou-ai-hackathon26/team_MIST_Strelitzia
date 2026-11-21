@@ -6,7 +6,7 @@ import type { ActionRecord, Finding } from "@prohori/shared";
 import { Bot, Check, Loader2, Lock, MessageSquare, Undo2, User, X } from "lucide-react";
 import { FlashOnChange } from "@/components/flash";
 import { Badge, Button, Card, StatusPill } from "@/components/ui";
-import { api, usePoll } from "@/lib/api";
+import { api, refreshAllPolls, usePoll } from "@/lib/api";
 import { STATE_TONE, actionConsequence, actionKind, actionTitle } from "@/lib/actions";
 import { cn, fmtDate, relTime } from "@/lib/utils";
 
@@ -71,6 +71,7 @@ function DecideDialog({
       });
       onDone(res);
       onClose();
+      refreshAllPolls();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -135,6 +136,7 @@ export function ActionCard({
     setErr(null);
     try {
       onChange?.(await api<ActionRecord>(`/actions/${encodeURIComponent(a.id)}/rollback`, { method: "POST", json: {} }));
+      refreshAllPolls();
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e));
     } finally {
@@ -157,7 +159,9 @@ export function ActionCard({
         <div className="min-w-0 space-y-3">
           {a.state === "superseded" && (
             <div className="rounded-lg border border-line bg-bg px-3 py-2 text-xs text-muted">
-              Superseded by revision <span className="font-mono text-fg">{a.supersededBy ?? "…"}</span>
+              {a.decisionNote
+                ? <>Closed by Sentinel — {a.decisionNote}</>
+                : <>Superseded by revision <span className="font-mono text-fg">{a.supersededBy ?? "…"}</span></>}
             </div>
           )}
           <div>
@@ -180,7 +184,7 @@ export function ActionCard({
               {finding && <FlashOnChange value={finding.status}><StatusPill status={finding.status} /></FlashOnChange>}
             </div>
           )}
-          {(a.decidedBy || a.decidedAt) && (
+          {a.decidedBy && a.state !== "superseded" && (
             <div className="rounded-lg border border-line bg-bg px-3 py-2 text-xs">
               <span className="text-muted">{a.state === "rejected" ? "Rejected" : "Approved"} by </span>
               <b className="text-fg">{a.decidedBy ?? "unknown"}</b>
@@ -219,6 +223,15 @@ export function ActionCard({
               <Button variant="success" onClick={() => setDialog("approve")}><Check className="size-4" /> Approve</Button>
               <Button variant="secondary" onClick={() => setDialog("reject")}><X className="size-4" /> Reject</Button>
             </>
+          )}
+          {!pending && mode === "decide" && (a.state === "approved" || a.state === "running" || a.state === "applied") && (
+            <Button variant="success" disabled><Check className="size-4" /> {a.state === "applied" ? "Approved · applied" : "Approved · applying…"}</Button>
+          )}
+          {!pending && mode === "decide" && a.state === "rejected" && (
+            <Button variant="secondary" disabled><X className="size-4" /> Rejected</Button>
+          )}
+          {!pending && mode === "decide" && a.state === "superseded" && (
+            <Button variant="secondary" disabled>Closed</Button>
           )}
           {a.state === "applied" && (
             <Button variant="warning" onClick={rollback} loading={busy}><Undo2 className="size-4" /> Rollback</Button>

@@ -45,12 +45,22 @@ export function proposeAction(input: {
 }): ActionRecord {
   if (!getSettings().tier2Enabled) throw new HttpError(409, "Tier 2 (fixes) is disabled in settings");
   if (!getHostRow(input.hostId)) throw new HttpError(404, `unknown host ${input.hostId}`);
+  const params = validate(input.type, input.params);
+  // Never create a duplicate: if an identical proposal is already pending (or approved/running/applied),
+  // return that one instead (and attach this chat thread if it has none).
+  if (!input.supersedes) {
+    const existing = findEquivalent(input.hostId, input.type, params, ["pending", "approved", "running", "applied"]);
+    if (existing) {
+      if (!existing.threadId && input.threadId) { existing.threadId = input.threadId; saveAction(existing); }
+      return existing;
+    }
+  }
   const a: ActionRecord = {
     id: newId("act"),
     hostId: input.hostId,
     findingId: input.findingId ?? null,
     type: input.type,
-    params: validate(input.type, input.params),
+    params,
     reason: input.reason,
     state: "pending",
     proposedBy: input.proposedBy,
@@ -91,16 +101,64 @@ export function reviseAction(oldId: string, input: { type: ActionType; params: u
   return next;
 }
 
+const paramKey = (p: Record<string, unknown>) =>
+  JSON.stringify(p, Object.keys(p).sort(), 0) + "|" + JSON.stringify(Array.isArray((p as any).packages) ? [...(p as any).packages].sort() : null);
+
+function findEquivalent(hostId: string, type: ActionType, params: Record<string, unknown>, states: string[]): ActionRecord | null {
+  const key = paramKey(params);
+  return listActions({ hostId }).find((a) =>
+    a.type === type && states.includes(a.state) && paramKey(a.params) === key &&
+    // a proposal closed only because its finding resolved (no successor) must not block re-proposing later
+    !(a.state === "superseded" && !a.supersededBy)) ?? null;
+}
+
 /** True if an equivalent action is already pending/approved/running/applied. */
 export function hasEquivalentAction(
   hostId: string, type: ActionType, params: Record<string, unknown>,
   states = ["pending", "approved", "running", "applied"],
 ): boolean {
-  const key = JSON.stringify(params, Object.keys(params).sort());
-  return listActions({ hostId }).some(
-    (a) => a.type === type && states.includes(a.state) &&
-      JSON.stringify(a.params, Object.keys(a.params).sort()) === key,
-  );
+  return !!findEquivalent(hostId, type, params, states);
+}
+
+/** Two proposals do the same job on a host: same type, and for firewall_port the same port/protocol. */
+function sameJob(a: ActionRecord, b: ActionRecord): boolean {
+  if (a.hostId !== b.hostId || a.type !== b.type) return false;
+  if (a.type === "firewall_port") {
+    const p = a.params as any, q = b.params as any;
+    return p.port === q.port && p.protocol === q.protocol;
+  }
+  if (a.type === "set_php_directive") {
+    const p = a.params as any, q = b.params as any;
+    return p.sapi === q.sapi && p.directive === q.directive;
+  }
+  return true; // upgrade_packages, nginx_block_multipart, restart_service(same type) are the same job
+}
+
+/** Close a pending proposal without a human decision (duplicate or no longer needed). */
+function closeProposal(p: ActionRecord, why: string, supersededBy: string | null) {
+  p.state = "superseded";
+  p.supersededBy = supersededBy;
+  p.decidedAt = nowIso();
+  p.decidedBy = null;
+  p.decisionNote = why;
+  saveAction(p);
+  audit("action_revised", `Closed proposal: ${describeAction(p)} — ${why}`, {
+    hostId: p.hostId, actor: "prohori", data: { actionId: p.id, threadId: p.threadId, newActionId: supersededBy },
+  });
+}
+
+/** After a scan: pending proposals whose finding is no longer exposed/vulnerable are closed automatically. */
+export function closeObsoleteProposals(findingStatus: (findingId: string) => string | null): number {
+  let n = 0;
+  for (const p of listActions({ state: "pending" })) {
+    if (!p.findingId) continue;
+    const st = findingStatus(p.findingId);
+    if (st === "not_affected" || st === null) {
+      closeProposal(p, st === null ? "no longer needed: the finding no longer exists" : "no longer needed: the finding is resolved (host not affected)", null);
+      n++;
+    }
+  }
+  return n;
 }
 
 function must(id: string): ActionRecord {
@@ -128,6 +186,9 @@ export function approveAction(id: string, d: Decision): ActionRecord {
   audit("action_approved", `${d.actor} approved: ${describeAction(a)}${decisionSuffix(a.decisionNote, a.threadId)}`, {
     hostId: a.hostId, actor: d.actor, data: { actionId: a.id, note: a.decisionNote, threadId: a.threadId },
   });
+  for (const other of listActions({ hostId: a.hostId, state: "pending" })) {
+    if (other.id !== a.id && sameJob(other, a)) closeProposal(other, `duplicate of the approved proposal ${a.id} (approved by ${d.actor})`, a.id);
+  }
   try {
     sendAction(a.hostId, a.id, a.type, a.params);
     a.state = "running";
