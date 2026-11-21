@@ -42,7 +42,13 @@ All three report "PHP 8.3.6"; a version-number scanner flags all three. All thre
 6. The daemon applies it; next scan downgrades bank-web-01 to *vulnerable, not exposed* (contained, still upgrade). **Event log** shows who approved what, with the note and the discussion link.
 7. Roll back from Approvals → back to exposed.
 
-**Reset between rehearsals:** roll back any applied actions (Approvals → Decided → Rollback), then Settings → "Reset demo". Reset re-holds PHP2Shell and deletes its findings/reports/actions, but does not undo applied fixes on the servers.
+**Reset between rehearsals:** Settings → "Reset demo". It rolls back every fix still applied to the servers (PHP upgrades, firewall rules, upload blocks, php.ini edits) through the daemons, re-holds PHP2Shell, and clears its findings, reports and open proposals. Give the rollbacks ~10–60 s before injecting again.
+
+If the dashboard shows **"Demo check: no server is vulnerable…"** after an inject, the servers were patched outside a fix Sentinel can still roll back (e.g. records already deleted). Rebuild the demo servers from their images:
+
+```bash
+bun run targets:reset    # recreates target-a/b/c with their original PHP builds
+```
 
 ## Layout
 

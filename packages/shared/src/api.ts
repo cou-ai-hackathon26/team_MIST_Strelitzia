@@ -26,7 +26,7 @@ export interface StatusResponse {
   pendingActions: number;
   inKevExposed: number;           // exposed findings that are on CISA KEV
   recentEvents: AuditEvent[];     // last 15
-  demo: { replayHeld: string[]; injected: string[] }; // see POST /api/demo/inject
+  demo: { replayHeld: string[]; injected: string[]; warning?: string | null }; // see POST /api/demo/inject
 }
 
 // GET /api/hosts                 -> HostSummary[]
@@ -71,7 +71,9 @@ export interface EnrollResponse {
 // The brain holds back CVE ids listed in env DEMO_REPLAY_HOLD (default "CVE-2026-109618,CVE-2026-109619")
 // — scans ignore them (and their aliases, e.g. UBUNTU-CVE-*) until injected.
 // POST /api/demo/inject body: { cveIds?: string[] }  -> { injected: string[] }  (releases them; next scheduled scan finds them)
-// POST /api/demo/reset                               -> { ok: true }  (re-holds them, deletes their findings/reports/actions)
+// POST /api/demo/reset -> { ok: true; restoring: string[]; failed: string[] }
+//   Rolls back every still-applied state-changing action on the servers first (upgrade, firewall, nginx block,
+//   php.ini), then re-holds the CVEs and deletes their findings/reports/open proposals.
 
 // GET /api/chat/threads?limit=50 -> ChatThreadSummary[]  (newest activity first; includes review threads)
 export interface ChatThreadSummary {

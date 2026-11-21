@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { EnrollResponse, Settings, StatusResponse } from "@prohori/shared";
 import { Copy, ExternalLink, FlaskConical, Mail, Plus, RotateCcw, Save, Server, Settings as SettingsIcon, Sparkles, Trash2 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, ErrorBanner, Input, PageHeader, Skeleton } from "@/components/ui";
-import { api, usePoll } from "@/lib/api";
+import { api, refreshAllPolls, usePoll } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 function useFlash() {
@@ -173,15 +173,19 @@ function DemoPanel() {
   const demo = status.data?.demo;
 
   async function run(kind: "inject" | "reset") {
-    if (kind === "reset" && !confirm("Reset the demo? This re-holds PHP2Shell and deletes its findings, reports and actions.")) return;
+    if (kind === "reset" && !confirm("Reset the demo? This rolls back every fix still applied to the servers (upgrades, firewall rules, upload blocks), re-holds PHP2Shell and deletes its findings, reports and open proposals.")) return;
     setBusy(kind);
     try {
       if (kind === "inject") {
         const r = await api<{ injected: string[] }>("/demo/inject", { method: "POST", json: {} });
         setMsg({ ok: true, text: `Released ${r.injected.join(", ") || "nothing"} — the next scan will discover it` });
       } else {
-        await api("/demo/reset", { method: "POST" });
-        setMsg({ ok: true, text: "Demo reset" });
+        const r = await api<{ ok: boolean; restoring?: string[]; failed?: string[] }>("/demo/reset", { method: "POST" });
+        const parts = ["Demo reset"];
+        if (r.restoring?.length) parts.push(`rolling back ${r.restoring.length} applied fix(es) on the servers: ${r.restoring.join("; ")} (takes ~10–60 s)`);
+        if (r.failed?.length) parts.push(`could not roll back: ${r.failed.join("; ")}`);
+        setMsg({ ok: !r.failed?.length, text: parts.join(" — ") });
+        refreshAllPolls();
       }
       await status.refresh();
     } catch (e) {
@@ -204,6 +208,9 @@ function DemoPanel() {
           </Button>
         </div>
         <Flash msg={msg} />
+        {demo?.warning && (
+          <div className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-100">{demo.warning}</div>
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-line bg-bg p-3">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-dim">Held back (not yet "published")</div>

@@ -118,6 +118,22 @@ async function chat(req: Request, actor: string): Promise<Response> {
   return withCors(createUIMessageStreamResponse({ stream: stream as any }));
 }
 
+// ---------------------------------------------------------------- demo readiness
+/**
+ * After "Inject", if a full scan has finished and none of the injected CVEs is vulnerable anywhere, the demo servers
+ * have most likely been patched by an earlier rehearsal (Reset demo only rolls back fixes it still has records of).
+ */
+function demoWarning(injected: string[], findings: ReturnType<typeof listFindings>): string | null {
+  if (!injected.length) return null;
+  const lastInject = listAudit(50, { kind: "demo_inject" }).find((e) => !/reset the demo/i.test(e.message));
+  const sc = scanState();
+  if (!lastInject || sc.running || !sc.lastStartedAt || Date.parse(sc.lastStartedAt) < Date.parse(lastInject.at)) return null;
+  const hit = findings.some((f) => injected.includes(f.cveId) && (f.status === "exposed" || f.status === "vulnerable_not_exposed"));
+  if (hit) return null;
+  return "No server is vulnerable to the injected CVEs: the demo servers already run patched builds (probably from an earlier rehearsal). " +
+    "Click Reset demo to roll back applied fixes, or run `bun run targets:reset` to rebuild the demo servers, then inject again.";
+}
+
 // ---------------------------------------------------------------- chat threads
 let backfilled = false;
 async function backfillThreads() {
@@ -190,7 +206,7 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
         pendingActions: listActions({ state: "pending" }).length,
         inKevExposed: findings.filter((f) => f.status === "exposed" && f.inKev).length,
         recentEvents: listAudit(15),
-        demo: { replayHeld: hs.held, injected: hs.injected },
+        demo: { replayHeld: hs.held, injected: hs.injected, warning: demoWarning(hs.injected, findings) },
       };
       return json(res);
     }
@@ -299,6 +315,22 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
       return json({ injected: holdState().injected });
     }
     if (m === "POST" && path === "/api/demo/reset") {
+      // 1) put the servers back: roll back every state-changing action that is still applied (newest first)
+      const REVERTIBLE = new Set(["upgrade_packages", "firewall_port", "nginx_block_multipart", "set_php_directive"]);
+      const restoring: string[] = [];
+      const failed: string[] = [];
+      const keep = new Set<string>();
+      for (const a of listActions({ state: "applied" })) {
+        if (!REVERTIBLE.has(a.type) || a.rolledBackBy) continue;
+        try {
+          rollbackAction(a.id, { actor, note: "demo reset: restoring the server" });
+          restoring.push(describeAction(a));
+          keep.add(a.id);
+        } catch (e) {
+          failed.push(`${describeAction(a)}: ${(e as Error).message}`);
+        }
+      }
+      // 2) re-hold the CVEs and clear their findings / reports / open proposals (keep records being rolled back)
       const ids = env.replayHold;
       setHold(ids, "held");
       const findingIds = new Set(deleteFindingsForCves(ids));
@@ -307,12 +339,15 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
         if (r.findingIds.some((id) => findingIds.has(id))) { deleteReport(r.id); reports++; }
       }
       for (const a of listActions()) {
-        if (a.findingId && findingIds.has(a.findingId)) { deleteAction(a.id); actions++; }
+        if (keep.has(a.id)) continue;
+        if (a.findingId && findingIds.has(a.findingId) && !["applied", "running", "approved"].includes(a.state)) { deleteAction(a.id); actions++; }
       }
-      audit("demo_inject", `${actor} reset the demo: re-held ${ids.join(", ")}; deleted ${findingIds.size} findings, ${reports} reports, ${actions} actions`, {
-        actor, data: { cveIds: ids, findings: findingIds.size, reports, actions },
+      audit("demo_inject", `${actor} reset the demo: re-held ${ids.join(", ")}; deleted ${findingIds.size} findings, ${reports} reports, ${actions} open proposals` +
+        (restoring.length ? `; rolling back ${restoring.length} applied fix(es): ${restoring.join("; ")}` : "") +
+        (failed.length ? `; could not roll back: ${failed.join("; ")}` : ""), {
+        actor, data: { cveIds: ids, findings: findingIds.size, reports, actions, restoring, failed },
       });
-      return json({ ok: true });
+      return json({ ok: true, restoring, failed });
     }
     if (m === "POST" && path === "/api/chat") return await chat(req, actor);
     if (m === "GET" && parts[0] === "chat" && parts[1] === "threads" && parts.length === 2) {
