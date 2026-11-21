@@ -35,7 +35,7 @@ All three report "PHP 8.3.6"; a version-number scanner flags all three. All thre
 ## Demo script (~90 s)
 
 1. **Overview**: three servers online, hundreds of raw "naive scanner" alerts, nothing urgent (PHP2Shell is held back — the replay starts on Oct 20).
-2. **Settings → Demo panel → "Inject PHP2Shell"** (replays the Oct 21 disclosure). Within one scan interval (~45 s), with nobody touching anything, Sentinel discovers it: red banner on bank-web-01, the "Version scanner vs Sentinel" table shows 3 vs 1.
+2. **Settings → Demo panel → "Inject PHP2Shell"** (replays the Oct 21 disclosure). Within one scan interval (~45 s), with nobody touching anything, Sentinel discovers it: red banner on bank-web-01, the "Recent patches" table shows only bank-web-01 as an emergency.
 3. **Mailpit**: the report email to it-security@ and soc@.
 4. **Ask Sentinel**: "Why is bank-web-02 safe?" — watch the tool calls.
 5. **Approvals → Review with Sentinel** on "Close port 80/tcp on bank-web-01": ask "can we avoid taking the site offline?" → the agent revises the proposal (or keep the firewall) → **Approve** with a note.

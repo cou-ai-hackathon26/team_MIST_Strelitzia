@@ -139,10 +139,10 @@ export default function OverviewPage() {
             <section>
               <div className="mb-2 flex items-center gap-2">
                 <ScanLine className="size-4 text-blue-400" />
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">Version scanner vs Sentinel</h2>
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">Recent patches</h2>
               </div>
               {groups.length === 0 ? (
-                <Empty>No vulnerable package matches yet. When a new CVE lands, this table shows what a version-number scanner would say next to Sentinel&apos;s verdict.</Empty>
+                <Empty>No recent vulnerabilities yet. When a new CVE lands, this shows every affected server and Sentinel&apos;s verdict.</Empty>
               ) : (
                 <div className="space-y-4">
                   {groups.slice(0, 3).map((g) => <ContrastTable key={g.cveIds.join()} group={g} hosts={d.hosts} />)}

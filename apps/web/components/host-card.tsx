@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import type { HostDetailResponse, HostSummary } from "@prohori/shared";
-import { Cpu, Lock, Network, ScanLine, ShieldCheck, Wrench } from "lucide-react";
-import { Badge, Card } from "@/components/ui";
+import { Cpu, Lock, Network, ScanLine, ShieldCheck } from "lucide-react";
+import { Card } from "@/components/ui";
 import { usePoll } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
 import { HostFixProgress } from "@/components/fix-progress";
@@ -97,14 +97,6 @@ export function HostCard({ host, now }: { host: HostSummary; now: number }) {
         <span className="inline-flex items-center gap-1 text-muted">
           <ShieldCheck className="size-3.5" /> Sentinel: <b className={cn("tabular-nums", c.exposed ? "text-red-400" : actionable ? "text-amber-300" : "text-emerald-300")}>{actionable}</b> to act on
         </span>
-      </div>
-      <div className="flex items-center gap-1.5 border-t border-line px-4 py-2 text-[11px] text-dim">
-        {host.tier2Enabled ? (
-          <Badge tone="violet"><Wrench className="size-3" /> Tier-2 fixes enabled</Badge>
-        ) : (
-          <Badge tone="gray">Tier-1 read-only</Badge>
-        )}
-        {host.daemonVersion && <span className="ml-auto font-mono">daemon {host.daemonVersion}</span>}
       </div>
     </Card>
   );
