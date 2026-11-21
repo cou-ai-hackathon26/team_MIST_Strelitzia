@@ -17,16 +17,16 @@ export default function WildPage() {
   return (
     <>
       <PageHeader
-        title="CVEs in the wild"
+        title="Threat Intelligence"
         icon={<Globe className="size-6 text-blue-400" />}
-        sub="Recent additions to the CISA Known Exploited Vulnerabilities catalog, matched against your servers"
+        sub="Recently added to CISA's Known Exploited Vulnerabilities catalog, correlated against your assets"
         right={<LiveTag updatedAt={wild.updatedAt} error={wild.error} now={now} />}
       />
       <ErrorBanner error={wild.error} />
       {!wild.data ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-48" />)}</div>
       ) : list.length === 0 ? (
-        <Empty>No KEV data yet.</Empty>
+        <Empty>No KEV data available.</Empty>
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {list.map((c) => {
@@ -35,7 +35,7 @@ export default function WildPage() {
               <Card key={c.cveId} className={cn("flex flex-col p-4", hit && "border-red-500/60 bg-red-950/20")}>
                 {hit && (
                   <div className="-mx-4 -mt-4 mb-3 flex flex-wrap items-center gap-2 rounded-t-xl bg-red-600 px-4 py-1.5 text-xs font-bold text-white">
-                    <Target className="size-3.5" /> AFFECTS:
+                    <Target className="size-3.5" /> Affected assets:
                     {c.affectsHosts.map((h) => <Link key={h} href={`/hosts/${h}`} className="rounded bg-white/15 px-1.5 hover:bg-white/25">{hostName(h)}</Link>)}
                   </div>
                 )}
@@ -47,8 +47,8 @@ export default function WildPage() {
                 <div className="mt-2 font-medium leading-snug text-fg">{c.name}</div>
                 <p className="mt-1.5 line-clamp-4 text-xs leading-relaxed text-muted">{c.shortDescription}</p>
                 <div className="mt-auto flex items-center gap-3 pt-3 text-[11px] text-dim">
-                  <span>added {fmtDay(c.dateAdded)}</span>
-                  <span className="inline-flex items-center gap-1"><CalendarClock className="size-3" /> due {fmtDay(c.dueDate)}</span>
+                  <span>Added {fmtDay(c.dateAdded)}</span>
+                  <span className="inline-flex items-center gap-1"><CalendarClock className="size-3" /> Due {fmtDay(c.dueDate)}</span>
                 </div>
               </Card>
             );

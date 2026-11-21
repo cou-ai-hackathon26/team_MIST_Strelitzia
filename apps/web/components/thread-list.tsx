@@ -7,7 +7,7 @@ import { usePoll } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
 import { Button, Card } from "@/components/ui";
 
-/** Left column of "Ask Sentinel": past conversations (general chats and "Review with Sentinel" threads). */
+/** Left column of the Sentinel page: past conversations (general chats and "Review with Sentinel" threads). */
 export function ThreadList({ currentThreadId, onNewThread }: { currentThreadId: string | null; onNewThread: () => void }) {
   const threads = usePoll<ChatThreadSummary[]>("/chat/threads?limit=60", 5000);
   const now = Date.now();

@@ -25,7 +25,7 @@ export default function FindingsPage() {
 
   return (
     <>
-      <PageHeader title="Findings" icon={<Bug className="size-6 text-blue-400" />} sub="Every (server, CVE) pair Sentinel evaluated, sorted by priority" right={<LiveTag updatedAt={findings.updatedAt} error={findings.error} now={now} />} />
+      <PageHeader title="Findings" icon={<Bug className="size-6 text-blue-400" />} sub="Every asset–CVE pair assessed by Sentinel, ordered by priority" right={<LiveTag updatedAt={findings.updatedAt} error={findings.error} now={now} />} />
       <ErrorBanner error={findings.error} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         {FILTERS.map((s) => {
@@ -45,7 +45,7 @@ export default function FindingsPage() {
           );
         })}
         <select value={host} onChange={(e) => setHost(e.target.value)} className="ml-auto h-8 rounded-lg border border-line bg-panel px-2 text-xs text-fg">
-          <option value="all">All hosts</option>
+          <option value="all">All Assets</option>
           {hosts.data?.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
         </select>
       </div>
@@ -53,17 +53,17 @@ export default function FindingsPage() {
       {!findings.data ? (
         <Skeleton className="h-64" />
       ) : rows.length === 0 ? (
-        <Empty>No findings{status !== "all" || host !== "all" ? " match these filters" : " yet — the next scan will populate this list"}.</Empty>
+        <Empty>No findings{status !== "all" || host !== "all" ? " match the selected filters" : " recorded. Results will appear after the next scan"}.</Empty>
       ) : (
         <Card className="overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-panel-2/60 text-left text-[11px] uppercase tracking-wider text-dim">
               <tr>
                 <th className="px-4 py-2.5 font-semibold">Priority</th>
-                <th className="px-4 py-2.5 font-semibold">Verdict</th>
+                <th className="px-4 py-2.5 font-semibold">Assessment</th>
                 <th className="px-4 py-2.5 font-semibold">CVE</th>
-                <th className="px-4 py-2.5 font-semibold">Host</th>
-                <th className="px-4 py-2.5 font-semibold">Package: installed → fixed</th>
+                <th className="px-4 py-2.5 font-semibold">Asset</th>
+                <th className="px-4 py-2.5 font-semibold">Package: Installed → Fixed</th>
                 <th className="px-4 py-2.5 font-semibold">Updated</th>
                 <th />
               </tr>
@@ -75,7 +75,7 @@ export default function FindingsPage() {
                   <td className="px-4 py-2.5">
                     <FlashOnChange value={f.status}><StatusPill status={f.status} /></FlashOnChange>
                     <HostFixProgress hostId={f.hostId} hostName={hostName(f.hostId)} compact className="mt-1" />
-                    {f.needsConfirmation && <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-amber-300"><HelpCircle className="size-3" /> needs confirmation</div>}
+                    {f.needsConfirmation && <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-amber-300"><HelpCircle className="size-3" /> Pending confirmation</div>}
                   </td>
                   <td className="px-4 py-2.5">
                     <Link href={`/findings/${f.id}`} className="font-mono font-semibold text-white hover:underline">{f.cveId}</Link>
@@ -91,8 +91,8 @@ export default function FindingsPage() {
                         <span className="text-muted">{f.package.name}</span>{" "}
                         <span className={f.status === "not_affected" ? "text-emerald-300" : "text-red-300"}>{f.package.installedVersion}</span>
                         <span className="text-dim"> → </span>
-                        <span className="text-emerald-300">{f.package.fixedVersion ?? "no fix yet"}</span>
-                        <div className="font-sans text-[11px] text-dim">banner: {versionBanner(f.package)}</div>
+                        <span className="text-emerald-300">{f.package.fixedVersion ?? "No fix available"}</span>
+                        <div className="font-sans text-[11px] text-dim">Reported: {versionBanner(f.package)}</div>
                       </>
                     ) : "—"}
                   </td>

@@ -87,8 +87,8 @@ export function Badge({ tone = "gray", className, ...p }: React.HTMLAttributes<H
 
 export const STATUS_META: Record<FindingStatus, { label: string; short: string; tone: Tone; dot: string; text: string }> = {
   exposed: { label: "Exposed", short: "EXPOSED", tone: "red", dot: "bg-exposed", text: "text-red-400" },
-  vulnerable_not_exposed: { label: "Vulnerable, not exposed", short: "NOT EXPOSED", tone: "amber", dot: "bg-vne", text: "text-amber-400" },
-  not_affected: { label: "Not affected", short: "SAFE", tone: "green", dot: "bg-safe", text: "text-emerald-400" },
+  vulnerable_not_exposed: { label: "Vulnerable · Unreachable", short: "UNREACHABLE", tone: "amber", dot: "bg-vne", text: "text-amber-400" },
+  not_affected: { label: "Not Affected", short: "NOT AFFECTED", tone: "green", dot: "bg-safe", text: "text-emerald-400" },
 };
 
 export function StatusPill({ status, size = "md", className }: { status: FindingStatus; size?: "md" | "lg"; className?: string }) {
@@ -112,8 +112,8 @@ export function PriorityBadge({ priority }: { priority: Priority }) {
 
 export function KevBadge({ className }: { className?: string }) {
   return (
-    <Badge tone="red" className={cn("border-red-500/60 bg-red-950/60 text-red-200", className)} title="Listed in CISA Known Exploited Vulnerabilities catalog — exploited in the wild">
-      KEV · EXPLOITED
+    <Badge tone="red" className={cn("border-red-500/60 bg-red-950/60 text-red-200", className)} title="Listed in the CISA Known Exploited Vulnerabilities catalog">
+      KEV · Known Exploited
     </Badge>
   );
 }
@@ -148,8 +148,7 @@ export function LiveTag({ updatedAt, error, now }: { updatedAt: number | null; e
   return (
     <span className="inline-flex items-center gap-2 rounded-full border border-line bg-panel px-2.5 py-1 text-xs text-muted">
       <LiveDot ok={ok} />
-      {error ? <span className="text-red-300">Sentinel offline</span> : ok ? <span className="text-emerald-300">LIVE</span> : "connecting…"}
-      {age !== null && !error && <span className="text-dim">· {age}s</span>}
+      {error ? <span className="text-red-300">Sentinel offline</span> : ok ? <span className="text-emerald-300">Live</span> : "Connecting…"}
     </span>
   );
 }

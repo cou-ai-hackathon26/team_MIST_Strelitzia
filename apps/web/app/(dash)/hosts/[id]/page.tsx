@@ -26,7 +26,7 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
       <PageHeader
         title={h?.name ?? id}
         icon={<Server className="size-6 text-blue-400" />}
-        sub={h ? <span className="font-mono">{h.id} · {h.os ?? "unknown OS"} · {h.status === "online" ? "online" : "offline"}, seen {relTime(h.lastSeen, now)}</span> : undefined}
+        sub={h ? <span className="font-mono">{h.id} · {h.os ?? "Unknown OS"} · {h.status === "online" ? "Online" : "Offline"} · Last seen {relTime(h.lastSeen, now)}</span> : undefined}
         right={<LiveTag updatedAt={updatedAt} error={error} now={now} />}
       />
       <ErrorBanner error={error} />
@@ -37,7 +37,7 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
           <Card>
             <CardHeader title={`Findings (${data.findings.length})`} />
             {data.findings.length === 0 ? (
-              <div className="p-4 text-sm text-muted">No findings for this host.</div>
+              <div className="p-4 text-sm text-muted">No findings for this asset.</div>
             ) : (
               <table className="w-full text-sm">
                 <tbody>
@@ -56,30 +56,30 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
           </Card>
 
           {!inv ? (
-            <Empty>No inventory received from this host yet.</Empty>
+            <Empty>No inventory received from this asset.</Empty>
           ) : (
             <>
               <div className="grid gap-5 lg:grid-cols-2">
                 <Card>
-                  <CardHeader title="System" icon={<Cpu className="size-4 text-blue-400" />} sub={`inventory collected ${relTime(inv.collectedAt, now)} (${fmtDate(inv.collectedAt)})`} />
+                  <CardHeader title="System" icon={<Cpu className="size-4 text-blue-400" />} sub={`Inventory collected ${relTime(inv.collectedAt, now)} (${fmtDate(inv.collectedAt)})`} />
                   <div className="px-4 py-2">
-                    <KV k="hostname" v={inv.hostname} />
-                    <KV k="os" v={`${inv.os.name} ${inv.os.version}`} />
-                    <KV k="codename" v={inv.os.codename} />
-                    <KV k="platform" v={inv.os.platform} />
-                    <KV k="daemon" v={h?.daemonVersion ?? "—"} />
-                    <KV k="tier-2 actions" v={h?.tier2Enabled ? <Badge tone="violet">enabled</Badge> : <Badge tone="gray">disabled</Badge>} mono={false} />
-                    <KV k="packages" v={String(inv.packages.length)} />
-                    <KV k="processes" v={String(inv.processes.length)} />
+                    <KV k="Hostname" v={inv.hostname} />
+                    <KV k="OS" v={`${inv.os.name} ${inv.os.version}`} />
+                    <KV k="Codename" v={inv.os.codename} />
+                    <KV k="Platform" v={inv.os.platform} />
+                    <KV k="Daemon" v={h?.daemonVersion ?? "—"} />
+                    <KV k="Tier-2 remediation" v={h?.tier2Enabled ? <Badge tone="violet">Enabled</Badge> : <Badge tone="gray">Disabled</Badge>} mono={false} />
+                    <KV k="Packages" v={String(inv.packages.length)} />
+                    <KV k="Processes" v={String(inv.processes.length)} />
                   </div>
                 </Card>
                 <Card>
-                  <CardHeader title="Listening ports" icon={<Network className="size-4 text-blue-400" />} sub="network exposure as seen by osquery" />
+                  <CardHeader title="Listening Ports" icon={<Network className="size-4 text-blue-400" />} sub="Network exposure as reported by osquery" />
                   {inv.listeningPorts.length === 0 ? (
-                    <div className="p-4 text-sm text-emerald-300">Nothing is listening — no network attack surface.</div>
+                    <div className="p-4 text-sm text-emerald-300">No network listeners. No network attack surface.</div>
                   ) : (
                     <table className="w-full text-sm">
-                      <thead className="text-left text-[11px] uppercase tracking-wider text-dim"><tr><th className="px-4 py-2">Address</th><th className="px-4 py-2">Proto</th><th className="px-4 py-2">Process</th><th className="px-4 py-2">PID</th></tr></thead>
+                      <thead className="text-left text-[11px] uppercase tracking-wider text-dim"><tr><th className="px-4 py-2">Address</th><th className="px-4 py-2">Protocol</th><th className="px-4 py-2">Process</th><th className="px-4 py-2">PID</th></tr></thead>
                       <tbody>
                         {inv.listeningPorts.map((p, i) => {
                           const pub = !["127.0.0.1", "::1"].includes(p.address);
@@ -87,7 +87,7 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
                             <tr key={i} className="border-t border-line/60 font-mono text-xs">
                               <td className={cn("px-4 py-1.5", isBlocked(p.port, p.protocol) ? "text-muted line-through" : pub ? "text-amber-300" : "text-muted")}>
                                 {p.address}:{p.port}
-                                {isBlocked(p.port, p.protocol) && <Badge tone="blue" className="ml-2 font-sans no-underline"><Lock className="size-3" /> blocked by firewall</Badge>}
+                                {isBlocked(p.port, p.protocol) && <Badge tone="blue" className="ml-2 font-sans no-underline"><Lock className="size-3" /> Blocked by firewall</Badge>}
                               </td>
                               <td className="px-4 py-1.5 text-muted">{p.protocol}</td>
                               <td className="px-4 py-1.5">{p.process}</td>
@@ -105,14 +105,14 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
                 <CardHeader
                   title="Firewall"
                   icon={<ShieldBan className="size-4 text-blue-400" />}
-                  sub="Ports closed by Sentinel-managed rules (containment, approved by an admin)"
-                  right={inv.firewall?.available ? <Badge tone="green">firewall tooling available</Badge> : <Badge tone="gray">firewall tooling not available</Badge>}
+                  sub="Ports closed by Sentinel-managed containment rules, approved by an administrator"
+                  right={inv.firewall?.available ? <Badge tone="green">Firewall tooling available</Badge> : <Badge tone="gray">Firewall tooling unavailable</Badge>}
                 />
                 {closedPorts.length === 0 ? (
                   <div className="p-4 text-sm text-muted">No ports closed by Sentinel.</div>
                 ) : (
                   <table className="w-full text-sm">
-                    <thead className="text-left text-[11px] uppercase tracking-wider text-dim"><tr><th className="px-4 py-2">Port</th><th className="px-4 py-2">State</th><th className="px-4 py-2">Managed by</th><th className="px-4 py-2">Action</th></tr></thead>
+                    <thead className="text-left text-[11px] uppercase tracking-wider text-dim"><tr><th className="px-4 py-2">Port</th><th className="px-4 py-2">State</th><th className="px-4 py-2">Managed By</th><th className="px-4 py-2">Action</th></tr></thead>
                     <tbody>
                       {closedPorts.map((r) => (
                         <tr key={`${r.port}/${r.protocol}`} className="border-t border-line/60 text-xs">
@@ -128,15 +128,15 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
               </Card>
 
               <Card>
-                <CardHeader title="Configuration (php / nginx)" icon={<Settings2 className="size-4 text-blue-400" />} />
+                <CardHeader title="Configuration (PHP / nginx)" icon={<Settings2 className="size-4 text-blue-400" />} />
                 <div className="px-4 py-2">
-                  {configEntries.length === 0 ? <div className="py-2 text-sm text-muted">No config values reported.</div> : configEntries.map(([k, v]) => <KV key={k} k={<span className="font-mono text-xs" title={k}>{k}</span>} v={v} />)}
+                  {configEntries.length === 0 ? <div className="py-2 text-sm text-muted">No configuration values reported.</div> : configEntries.map(([k, v]) => <KV key={k} k={<span className="font-mono text-xs" title={k}>{k}</span>} v={v} />)}
                 </div>
               </Card>
 
               <Card>
                 <CardHeader
-                  title={`Installed packages (${inv.packages.length})`}
+                  title={`Installed Packages (${inv.packages.length})`}
                   icon={<Package className="size-4 text-blue-400" />}
                   right={<Input placeholder="Filter, e.g. php" value={q} onChange={(e) => setQ(e.target.value)} className="h-8 w-56 text-xs" />}
                 />
@@ -154,7 +154,7 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
                       ))}
                     </tbody>
                   </table>
-                  {pkgs.length > 500 && <div className="p-3 text-center text-xs text-muted">showing 500 of {pkgs.length}; refine the filter</div>}
+                  {pkgs.length > 500 && <div className="p-3 text-center text-xs text-muted">Showing 500 of {pkgs.length}. Refine the filter to narrow results.</div>}
                   {pkgs.length === 0 && <div className="p-4 text-center text-sm text-muted">No packages match.</div>}
                 </div>
               </Card>

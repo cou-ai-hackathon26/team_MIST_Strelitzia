@@ -55,7 +55,7 @@ export function eventThreadId(e: AuditEvent): string | null {
 }
 
 export function ActivityFeed({ events, now }: { events: AuditEvent[]; now: number }) {
-  if (events.length === 0) return <div className="px-4 py-6 text-center text-sm text-muted">No activity yet.</div>;
+  if (events.length === 0) return <div className="px-4 py-6 text-center text-sm text-muted">No activity recorded.</div>;
   return (
     <ul className="divide-y divide-line/60">
       {events.map((e) => {
@@ -72,7 +72,7 @@ export function ActivityFeed({ events, now }: { events: AuditEvent[]; now: numbe
                 {e.cveId && <span className="whitespace-nowrap">{e.cveId}</span>}
                 {thread && (
                   <Link href={`/chat?thread=${encodeURIComponent(thread)}`} className="inline-flex items-center gap-0.5 font-sans text-blue-400 hover:underline">
-                    <MessageSquare className="size-3" /> discussion
+                    <MessageSquare className="size-3" /> Conversation
                   </Link>
                 )}
               </div>

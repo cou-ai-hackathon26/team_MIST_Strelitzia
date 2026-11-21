@@ -15,8 +15,8 @@ const KIND_GROUPS: { label: string; kinds: AuditEvent["kind"][] }[] = [
   { label: "Reports", kinds: ["report_generated", "report_sent"] },
   { label: "Actions", kinds: ["action_proposed", "action_revised", "action_approved", "action_rejected", "action_applied", "action_failed", "action_rolled_back"] },
   { label: "Scans", kinds: ["scan_started", "scan_finished", "wild_refreshed"] },
-  { label: "Hosts", kinds: ["host_online", "host_offline", "inventory_changed"] },
-  { label: "Admin & demo", kinds: ["login", "settings_changed", "demo_inject", "error"] },
+  { label: "Assets", kinds: ["host_online", "host_offline", "inventory_changed"] },
+  { label: "Administration", kinds: ["login", "settings_changed", "demo_inject", "error"] },
 ];
 
 function str(v: unknown): string | null {
@@ -36,16 +36,16 @@ function Details({ e }: { e: AuditEvent }) {
   const rest = Object.fromEntries(Object.entries(d).filter(([k]) => !["note", "decisionNote", "recipients", "emailedTo", "to", "threadId"].includes(k)));
   return (
     <div className="mt-1 space-y-1">
-      {recipients && <div className="text-xs text-muted">to <span className="font-mono text-fg">{recipients}</span></div>}
+      {recipients && <div className="text-xs text-muted">Recipients: <span className="font-mono text-fg">{recipients}</span></div>}
       {note && <div className="text-xs italic text-fg">“{note}”</div>}
       <div className="flex flex-wrap gap-3 text-xs">
-        {thread && <Link href={`/chat?thread=${encodeURIComponent(thread)}${actionId ? `&actionId=${encodeURIComponent(actionId)}` : ""}`} className="inline-flex items-center gap-1 text-blue-400 hover:underline"><MessageSquare className="size-3" /> view discussion</Link>}
-        {reportId && <Link href={`/reports/${reportId}`} className="text-blue-400 hover:underline">open report</Link>}
-        {actionId && !thread && <Link href="/approvals" className="text-blue-400 hover:underline">see approvals</Link>}
+        {thread && <Link href={`/chat?thread=${encodeURIComponent(thread)}${actionId ? `&actionId=${encodeURIComponent(actionId)}` : ""}`} className="inline-flex items-center gap-1 text-blue-400 hover:underline"><MessageSquare className="size-3" /> View conversation</Link>}
+        {reportId && <Link href={`/reports/${reportId}`} className="text-blue-400 hover:underline">Open report</Link>}
+        {actionId && !thread && <Link href="/approvals" className="text-blue-400 hover:underline">View approvals</Link>}
       </div>
       {Object.keys(rest).length > 0 && (
         <details>
-          <summary className="cursor-pointer text-[11px] text-dim">data</summary>
+          <summary className="cursor-pointer text-[11px] text-dim">Raw data</summary>
           <pre className="mt-1 overflow-x-auto font-mono text-[11px] text-muted">{JSON.stringify(rest, null, 2)}</pre>
         </details>
       )}
@@ -69,15 +69,15 @@ export default function EventsPage() {
 
   return (
     <>
-      <PageHeader title="Event log" icon={<ScrollText className="size-6 text-blue-400" />} sub="What Sentinel did, what the daemons reported, and who decided what — newest first" right={<LiveTag updatedAt={updatedAt} error={error} now={now} />} />
+      <PageHeader title="Audit Log" icon={<ScrollText className="size-6 text-blue-400" />} sub="Chronological record of Sentinel activity, daemon telemetry and administrator decisions" right={<LiveTag updatedAt={updatedAt} error={error} now={now} />} />
       <ErrorBanner error={error} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <select value={host} onChange={(e) => setHost(e.target.value)} className="h-8 rounded-lg border border-line bg-panel px-2 text-xs text-fg">
-          <option value="">All hosts</option>
+          <option value="">All Assets</option>
           {hosts.data?.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
         </select>
         <select value={kind} onChange={(e) => setKind(e.target.value)} className="h-8 rounded-lg border border-line bg-panel px-2 text-xs text-fg">
-          <option value="">All events</option>
+          <option value="">All Events</option>
           {KIND_GROUPS.map((g) => (
             <optgroup key={g.label} label={g.label}>
               <option value={`group:${g.label}`}>All {g.label.toLowerCase()}</option>
@@ -90,7 +90,7 @@ export default function EventsPage() {
       {!data ? (
         <Skeleton className="h-96" />
       ) : rows.length === 0 ? (
-        <Empty>No events{host || kind ? " match these filters" : " yet"}.</Empty>
+        <Empty>No events{host || kind ? " match the selected filters" : " recorded"}.</Empty>
       ) : (
         <Card className="overflow-hidden">
           <ol className="divide-y divide-line/60">

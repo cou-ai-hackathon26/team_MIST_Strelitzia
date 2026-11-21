@@ -18,12 +18,12 @@ export default function ReportsPage() {
   };
   return (
     <>
-      <PageHeader title="Reports" icon={<FileText className="size-6 text-blue-400" />} sub="History of every report Sentinel wrote and emailed to your IT team, newest first" right={<LiveTag updatedAt={updatedAt} error={error} now={now} />} />
+      <PageHeader title="Reports" icon={<FileText className="size-6 text-blue-400" />} sub="Incident reports issued by Sentinel and delivered to your security team" right={<LiveTag updatedAt={updatedAt} error={error} now={now} />} />
       <ErrorBanner error={error} />
       {!data ? (
         <Skeleton className="h-48" />
       ) : data.length === 0 ? (
-        <Empty>No reports yet. Sentinel writes one whenever a scan finds something new.</Empty>
+        <Empty>No reports issued. Sentinel issues a report whenever a scan detects a new or changed finding.</Empty>
       ) : (
         <div className="space-y-3">
           {data.map((r) => (
@@ -34,13 +34,13 @@ export default function ReportsPage() {
                   <div className="truncate font-medium text-white">{r.title}</div>
                   <div className="text-xs text-muted">{fmtDate(r.createdAt)} · {relTime(r.createdAt, now)} · {r.findingIds.length} finding{r.findingIds.length === 1 ? "" : "s"}</div>
                   {affected(r).length > 0 && (
-                    <div className="mt-1 flex flex-wrap items-center gap-1 text-xs"><span className="text-dim">affected:</span>{affected(r).map((n) => <Badge key={n} tone="amber">{n}</Badge>)}</div>
+                    <div className="mt-1 flex flex-wrap items-center gap-1 text-xs"><span className="text-dim">Affected:</span>{affected(r).map((n) => <Badge key={n} tone="amber">{n}</Badge>)}</div>
                   )}
                 </div>
                 {r.emailedTo.length > 0 ? (
-                  <Badge tone="blue"><Mail className="size-3" /> emailed to {r.emailedTo.join(", ")}{r.emailedAt ? ` at ${fmtDate(r.emailedAt)}` : ""}</Badge>
+                  <Badge tone="blue"><Mail className="size-3" /> Sent to {r.emailedTo.join(", ")}{r.emailedAt ? ` at ${fmtDate(r.emailedAt)}` : ""}</Badge>
                 ) : (
-                  <Badge tone="gray">not emailed</Badge>
+                  <Badge tone="gray">Not sent</Badge>
                 )}
               </Card>
             </Link>

@@ -32,7 +32,7 @@ export function HostCard({ host, now }: { host: HostSummary; now: number }) {
         c.exposed > 0 ? "border-red-500/60 shadow-[0_0_0_1px_rgba(239,68,68,0.25),0_0_30px_-10px_rgba(239,68,68,0.5)]" : c.vulnerable_not_exposed > 0 ? "border-amber-500/40" : "",
       )}
     >
-      {c.exposed > 0 && <div className="bg-red-600 px-4 py-1 text-center text-[11px] font-bold uppercase tracking-widest text-white">Emergency · exposed</div>}
+      {c.exposed > 0 && <div className="bg-red-600 px-4 py-1 text-center text-[11px] font-bold uppercase tracking-widest text-white">Critical · Exposed</div>}
       <div className="flex items-start justify-between gap-2 px-4 pt-4">
         <div className="min-w-0">
           <Link href={`/hosts/${host.id}`} className="text-lg font-semibold text-white hover:underline">{host.name}</Link>
@@ -41,14 +41,14 @@ export function HostCard({ host, now }: { host: HostSummary; now: number }) {
         <div className="flex flex-col items-end gap-1">
           <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", online ? "text-emerald-300" : "text-slate-400")}>
             <span className={cn("size-2 rounded-full", online ? "bg-emerald-400 animate-pulse-dot" : "bg-slate-500")} />
-            {online ? "online" : "offline"}
+            {online ? "Online" : "Offline"}
           </span>
-          <span className="text-[11px] text-dim">seen {relTime(host.lastSeen, now)}</span>
+          <span className="text-[11px] text-dim">Last seen {relTime(host.lastSeen, now)}</span>
         </div>
       </div>
 
       <div className="space-y-1.5 px-4 pt-3 text-xs">
-        <div className="flex items-center gap-2 text-muted"><Cpu className="size-3.5" />{host.os ?? "unknown OS"}</div>
+        <div className="flex items-center gap-2 text-muted"><Cpu className="size-3.5" />{host.os ?? "Unknown OS"}</div>
         {phpBuild ? (
           <div className="flex items-center gap-2 text-muted">
             <span className="w-3.5 text-center text-[10px] font-bold text-indigo-300">php</span>
@@ -56,31 +56,31 @@ export function HostCard({ host, now }: { host: HostSummary; now: number }) {
             {phpSapis.length > 0 && <span className="text-dim">({phpSapis.join(", ")})</span>}
           </div>
         ) : inv ? (
-          <div className="flex items-center gap-2 text-dim"><span className="w-3.5 text-center text-[10px] font-bold">php</span>not installed</div>
+          <div className="flex items-center gap-2 text-dim"><span className="w-3.5 text-center text-[10px] font-bold">php</span>Not installed</div>
         ) : null}
         {inv && (
           <div className="flex items-start gap-2 text-muted">
             <Network className="mt-0.5 size-3.5 shrink-0" />
             {closed.length > 0 && (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded border border-blue-500/40 bg-blue-500/15 px-1.5 font-mono text-[11px] text-blue-200" title="Closed by a Sentinel firewall rule">
-                <Lock className="size-3" />{closed.map((r) => `${r.port}/${r.protocol}`).join(", ")} closed
+              <span className="inline-flex shrink-0 items-center gap-1 rounded border border-blue-500/40 bg-blue-500/15 px-1.5 font-mono text-[11px] text-blue-200" title="Blocked by a Sentinel-managed firewall rule">
+                <Lock className="size-3" />{closed.map((r) => `${r.port}/${r.protocol}`).join(", ")} blocked
               </span>
             )}
             {ports.length ? (
               <span className="font-mono text-fg">{ports.slice(0, 3).map((p) => `${p.address}:${p.port} ${p.process}`).join(", ")}{ports.length > 3 ? ` +${ports.length - 3}` : ""}</span>
             ) : (
-              <span className="text-emerald-300/90">no network listeners</span>
+              <span className="text-emerald-300/90">No network listeners</span>
             )}
           </div>
         )}
         <HostFixProgress hostId={host.id} hostName={host.name} compact className="mt-2" />
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-px border-y border-line bg-line text-center">
+      <div className="mt-4 grid grid-cols-3 gap-px border-t border-line bg-line text-center">
         {([
           ["exposed", c.exposed, "text-red-400", "Exposed"],
-          ["vne", c.vulnerable_not_exposed, "text-amber-400", "Not exposed"],
-          ["na", c.not_affected, "text-emerald-400", "Not affected"],
+          ["vne", c.vulnerable_not_exposed, "text-amber-400", "Unreachable"],
+          ["na", c.not_affected, "text-emerald-400", "Not Affected"],
         ] as const).map(([k, n, cls, label]) => (
           <div key={k} className="bg-panel py-2">
             <div className={cn("text-xl font-bold tabular-nums", n > 0 ? cls : "text-dim")}>{n}</div>

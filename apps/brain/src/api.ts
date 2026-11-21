@@ -130,8 +130,8 @@ function demoWarning(injected: string[], findings: ReturnType<typeof listFinding
   if (!lastInject || sc.running || !sc.lastStartedAt || Date.parse(sc.lastStartedAt) < Date.parse(lastInject.at)) return null;
   const hit = findings.some((f) => injected.includes(f.cveId) && (f.status === "exposed" || f.status === "vulnerable_not_exposed"));
   if (hit) return null;
-  return "No server is vulnerable to the injected CVEs: the demo servers already run patched builds (probably from an earlier rehearsal). " +
-    "Click Reset demo to roll back applied fixes, or run `bun run targets:reset` to rebuild the demo servers, then inject again.";
+  return "No asset is vulnerable to the released CVEs — the lab assets already run patched builds, likely from an earlier rehearsal. " +
+    "Use Reset Environment to roll back applied remediation, or run `bun run targets:reset` to rebuild the lab assets, then replay the disclosure again.";
 }
 
 // ---------------------------------------------------------------- chat threads
@@ -311,7 +311,7 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
       const all = new Set(env.replayHold);
       const ids = (b.cveIds?.length ? b.cveIds.map((s) => s.toUpperCase()) : env.replayHold).filter((id) => all.has(id) || holdState().held.includes(id));
       setHold(ids, "injected");
-      audit("demo_inject", `${actor} released ${ids.join(", ")} (demo replay) — the next scheduled scan will discover them`, { actor, data: { cveIds: ids } });
+      audit("demo_inject", `${actor === "unknown" ? "Operator" : actor} replayed the disclosure of ${ids.join(", ")}; Sentinel will assess it on the next scheduled scan`, { actor, data: { cveIds: ids } });
       return json({ injected: holdState().injected });
     }
     if (m === "POST" && path === "/api/demo/reset") {
@@ -342,8 +342,8 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
         if (keep.has(a.id)) continue;
         if (a.findingId && findingIds.has(a.findingId) && !["applied", "running", "approved"].includes(a.state)) { deleteAction(a.id); actions++; }
       }
-      audit("demo_inject", `${actor} reset the demo: re-held ${ids.join(", ")}; deleted ${findingIds.size} findings, ${reports} reports, ${actions} open proposals` +
-        (restoring.length ? `; rolling back ${restoring.length} applied fix(es): ${restoring.join("; ")}` : "") +
+      audit("demo_inject", `${actor === "unknown" ? "Operator" : actor} reset the demonstration environment: re-embargoed ${ids.join(", ")}; cleared ${findingIds.size} findings, ${reports} reports, ${actions} open proposals` +
+        (restoring.length ? `; rolling back ${restoring.length} applied remediation(s): ${restoring.join("; ")}` : "") +
         (failed.length ? `; could not roll back: ${failed.join("; ")}` : ""), {
         actor, data: { cveIds: ids, findings: findingIds.size, reports, actions, restoring, failed },
       });

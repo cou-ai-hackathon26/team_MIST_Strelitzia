@@ -40,8 +40,8 @@ function LoginForm() {
       <div className="mb-6">
         <Logo />
       </div>
-      <h1 className="text-lg font-semibold">Admin sign in</h1>
-      <p className="mt-1 text-sm text-muted">Security operations dashboard</p>
+      <h1 className="text-lg font-semibold">Sign in</h1>
+      <p className="mt-1 text-sm text-muted">Prohori Security Operations</p>
       <form onSubmit={submit} className="mt-5 space-y-3">
         <label className="block text-xs font-medium text-muted" htmlFor="user">Username</label>
         <Input id="user" autoFocus autoComplete="username" placeholder="e.g. rahim" value={username} onChange={(e) => setUsername(e.target.value)} />

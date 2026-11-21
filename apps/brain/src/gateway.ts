@@ -29,12 +29,12 @@ function markOnline(hostId: string) {
   updateHostMeta(hostId, { lastSeen: nowIso() });
   if (!online.has(hostId)) {
     online.add(hostId);
-    audit("host_online", `${getHostRow(hostId)?.name ?? hostId} connected`, { hostId });
+    audit("host_online", `${getHostRow(hostId)?.name ?? hostId} came online`, { hostId });
   }
 }
 
 function markOffline(hostId: string, why: string) {
-  if (online.delete(hostId)) audit("host_offline", `${getHostRow(hostId)?.name ?? hostId} offline (${why})`, { hostId });
+  if (online.delete(hostId)) audit("host_offline", `${getHostRow(hostId)?.name ?? hostId} went offline (${why})`, { hostId });
 }
 
 setInterval(() => {
@@ -109,7 +109,7 @@ export const websocketHandler = {
         const os = snap.os;
         updateHostMeta(hostId, { os: os.version ? `${os.name} ${os.version}` : os.name });
         const { changed } = saveInventory(hostId, snap);
-        if (changed) audit("inventory_changed", `${getHostRow(hostId)?.name ?? hostId}: packages/ports/firewall changed (${parsed.reason})`, { hostId });
+        if (changed) audit("inventory_changed", `${getHostRow(hostId)?.name ?? hostId}: configuration change detected (packages, listeners or firewall)`, { hostId });
         gatewayHooks.onInventory(hostId, changed);
         return;
       }

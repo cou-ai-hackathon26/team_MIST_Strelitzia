@@ -5,8 +5,8 @@ import "./globals.css";
 const display = Audiowide({ weight: "400", subsets: ["latin"], display: "swap", variable: "--font-audiowide" });
 
 export const metadata: Metadata = {
-  title: "Prohori · AI security sentinel",
-  description: "Prohori (প্রহরী) — live inventory, real exposure analysis and human-approved fixes for servers.",
+  title: "Prohori · Exposure Management",
+  description: "Prohori — asset inventory, verified exposure analysis and human-approved remediation.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

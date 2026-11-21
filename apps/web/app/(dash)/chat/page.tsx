@@ -15,16 +15,16 @@ import { extractAction } from "@/lib/actions";
 import { cn } from "@/lib/utils";
 
 const SUGGESTIONS = [
-  "Are we exposed to PHP2Shell?",
-  "Why is bank-web-02 safe?",
-  "What's running on bank-batch-01?",
-  "Propose a fix for bank-web-01",
+  "Assess our exposure to PHP2Shell",
+  "Why is bank-web-02 not affected?",
+  "Inventory bank-batch-01",
+  "Recommend remediation for bank-web-01",
 ];
 const REVIEW_SUGGESTIONS = [
-  "Explain the risk of this change",
-  "Can we avoid taking the site offline?",
-  "Revise: block only file uploads instead",
-  "What happens if we don't act?",
+  "Assess the risk of this change",
+  "Can we avoid downtime?",
+  "Revise: block file uploads only",
+  "Impact of no action",
 ];
 
 const THREAD_KEY = "prohori.chat.thread";
@@ -61,21 +61,21 @@ function ToolCard({ part }: { part: AnyToolPart }) {
         <Wrench className="size-3.5 text-violet-400" />
         <span className="font-mono font-semibold text-violet-200">{name}</span>
         <span className="min-w-0 flex-1 truncate font-mono text-dim">{inputStr.replace(/\s+/g, " ")}</span>
-        {running && <Badge tone="blue"><Loader2 className="size-3 animate-spin" /> running</Badge>}
-        {done && <Badge tone="green"><CheckCircle2 className="size-3" /> done</Badge>}
-        {failed && <Badge tone="red"><CircleAlert className="size-3" /> {state === "output-denied" ? "denied" : "error"}</Badge>}
+        {running && <Badge tone="blue"><Loader2 className="size-3 animate-spin" /> Running</Badge>}
+        {done && <Badge tone="green"><CheckCircle2 className="size-3" /> Complete</Badge>}
+        {failed && <Badge tone="red"><CircleAlert className="size-3" /> {state === "output-denied" ? "Denied" : "Error"}</Badge>}
         {!running && !done && !failed && <Badge tone="gray">{state}</Badge>}
         {open ? <ChevronDown className="size-3.5 text-dim" /> : <ChevronRight className="size-3.5 text-dim" />}
       </button>
       {open && (
         <div className="space-y-2 border-t border-line px-3 py-2">
           <div>
-            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-dim">input</div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-dim">Input</div>
             <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] text-fg">{inputStr || "{}"}</pre>
           </div>
           {(done || failed) && (
             <div>
-              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-dim">{failed ? "error" : "output"}</div>
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-dim">{failed ? "Error" : "Output"}</div>
               <pre className={cn("max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px]", failed ? "text-red-300" : "text-fg")}>{outStr}</pre>
             </div>
           )}
@@ -133,12 +133,12 @@ function ReviewBanner({ chain, hostName, threadId }: { chain: Chain; hostName: (
   return (
     <div className="mb-3 max-h-[45vh] overflow-y-auto">
       <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
-        <Pin className="size-3.5" /> Reviewing proposed action{chain.currentId && <span className="font-mono normal-case text-dim">· {chain.currentId}</span>}
+        <Pin className="size-3.5" /> Reviewing Proposed Action{chain.currentId && <span className="font-mono normal-case text-dim">· {chain.currentId}</span>}
       </div>
       {a ? (
         <ActionCard a={a} hostName={hostName(a.hostId)} mode="decide" finding={finding.data ?? null} threadId={threadId} onChange={() => void chain.refresh()} compact />
       ) : chain.error ? (
-        <div className="rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">Could not load action: {chain.error}</div>
+        <div className="rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">Unable to load action: {chain.error}</div>
       ) : (
         <Skeleton className="h-32" />
       )}
@@ -208,29 +208,29 @@ function ChatThread({ threadId, initial, actionId, onNewThread }: { threadId: st
       {actionId && <ReviewBanner chain={chain} hostName={hostName} threadId={threadId} />}
       <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div className="flex items-center gap-2 border-b border-line px-4 py-2.5 text-xs text-muted">
-          <span className="font-mono">thread {threadId}</span>
-          <span className="ml-auto">{busy ? <span className="inline-flex items-center gap-1 text-blue-300"><Loader2 className="size-3 animate-spin" /> thinking…</span> : "ready"}</span>
-          <Button size="sm" variant="ghost" onClick={onNewThread} disabled={busy}><Plus className="size-3.5" /> New thread</Button>
+          <span className="font-mono">Thread {threadId}</span>
+          <span className="ml-auto">{busy ? <span className="inline-flex items-center gap-1 text-blue-300"><Loader2 className="size-3 animate-spin" /> Analyzing…</span> : "Ready"}</span>
+          <Button size="sm" variant="ghost" onClick={onNewThread} disabled={busy}><Plus className="size-3.5" /> New Conversation</Button>
         </div>
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
           {messages.length === 0 && (
             <div className="mx-auto mt-6 max-w-xl text-center">
               <Bot className="mx-auto size-10 text-blue-400" />
-              <h2 className="mt-3 text-lg font-semibold text-white">{actionId ? "Discuss this proposal with Sentinel" : "Ask Sentinel about your servers"}</h2>
+              <h2 className="mt-3 text-lg font-semibold text-white">{actionId ? "Review This Proposal with Sentinel" : "Ask Sentinel About Your Assets"}</h2>
               <p className="mt-1 text-sm text-muted">
                 {actionId
-                  ? "Ask about the risk, alternatives or side effects. Sentinel can revise the proposal; only you can approve it."
-                  : "It answers from live data: it queries hosts, findings and advisories as tools, and can propose (never apply) fixes."}
+                  ? "Ask about risk, alternatives or side effects. Sentinel can revise the proposal; approval remains with you."
+                  : "Sentinel answers from live data, querying assets, findings and advisories directly. It can propose remediation but never applies changes."}
               </p>
             </div>
           )}
           {messages.map((m) => <Message key={m.id} m={m} hostName={hostName} threadId={threadId} />)}
           {status === "submitted" && (
-            <div className="flex items-center gap-2 pl-11 text-sm text-muted"><Loader2 className="size-4 animate-spin" /> Sentinel is looking at live data…</div>
+            <div className="flex items-center gap-2 pl-11 text-sm text-muted"><Loader2 className="size-4 animate-spin" /> Sentinel is analyzing live data…</div>
           )}
           {error && (
             <div className="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-950/40 px-3 py-2 text-sm text-red-200">
-              <CircleAlert className="mt-0.5 size-4" /> {error.message || "Chat request failed"}
+              <CircleAlert className="mt-0.5 size-4" /> {error.message || "Request failed"}
             </div>
           )}
           <div ref={endRef} />
@@ -247,7 +247,7 @@ function ChatThread({ threadId, initial, actionId, onNewThread }: { threadId: st
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={actionId ? "Ask about this change, or ask Sentinel to revise it…" : "Ask about exposure, hosts, CVEs, fixes…"}
+              placeholder={actionId ? "Ask about this change or request a revision…" : "Ask about exposure, assets, CVEs or remediation…"}
               className="h-11 flex-1 rounded-lg border border-line-2 bg-bg px-3 text-sm text-fg placeholder:text-dim focus:border-accent focus:outline-none"
             />
             {busy ? (
@@ -336,9 +336,9 @@ function ChatRouter() {
   return (
     <>
       <PageHeader
-        title={actionId ? "Review with Sentinel" : "Ask Sentinel"}
+        title={actionId ? "Review with Sentinel" : "Sentinel"}
         icon={<MessageSquare className="size-6 text-blue-400" />}
-        sub={actionId ? "Discuss the proposed change; approve or reject it when you're satisfied" : "Chat with the agent — tool calls are shown live as it fetches data from your servers"}
+        sub={actionId ? "Discuss the proposed change, then approve or reject it" : "AI security analyst — every answer is grounded in live data from your assets"}
       />
       {err && <div className="mb-3 text-sm text-red-300">{err}</div>}
       <div className="grid gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">

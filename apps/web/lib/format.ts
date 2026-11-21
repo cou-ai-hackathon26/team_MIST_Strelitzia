@@ -18,16 +18,16 @@ export function shortVerdictReason(f: Finding): string {
   const listening = f.evidence["listening"] ?? f.evidence["listeningPorts"] ?? f.evidence["network"];
   switch (f.status) {
     case "exposed":
-      return `Vulnerable build and reachable${listening ? `: ${listening}` : " over the network"}`;
+      return `Vulnerable build, reachable${listening ? `: ${listening}` : " over the network"}`;
     case "vulnerable_not_exposed":
       if (f.evidence["firewall"] && /closed/i.test(f.evidence["firewall"]))
-        return `Vulnerable build, contained: ${f.evidence["firewall"]} — still upgrade, this is not a fix`;
+        return `Vulnerable build, contained: ${f.evidence["firewall"]}. Containment only; upgrade still required`;
       if (/cli-only/i.test(f.evidence["reachability"] ?? "") || f.evidence["webSapi"] === "none")
-        return "Vulnerable build, but PHP is CLI-only and nothing listens on the network — upgrade at normal priority";
-      return `Vulnerable build, but no network path${listening ? ` (${listening})` : ""} — upgrade at normal priority`;
+        return "Vulnerable build, unreachable: PHP is CLI-only with no network listeners. Patch in next maintenance cycle";
+      return `Vulnerable build, unreachable: no network path${listening ? ` (${listening})` : ""}. Patch in next maintenance cycle`;
     case "not_affected":
       return f.package?.fixedVersion
-        ? `Installed build already contains the fix (≥ ${f.package.fixedVersion}, distro backport)`
+        ? `Installed build already contains the fix (≥ ${f.package.fixedVersion}, distribution backport)`
         : "Installed build is not vulnerable";
   }
 }
@@ -98,7 +98,7 @@ export const EVENT_TONE: Partial<Record<AuditEvent["kind"], string>> = {
 
 /** "prohori" -> "Prohori", "daemon:web-a" stays, usernames stay. */
 export function actorLabel(actor: string | undefined | null): string {
-  if (!actor) return "unknown";
+  if (!actor) return "Unknown";
   if (actor === "prohori" || actor === "system" || actor === "agent") return "Sentinel";
   return actor;
 }

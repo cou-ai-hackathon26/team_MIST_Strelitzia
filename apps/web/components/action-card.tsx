@@ -23,9 +23,9 @@ function DiffBlock({ diff }: { diff: string }) {
 
 export function KindBadge({ a }: { a: Pick<ActionRecord, "type"> }) {
   const k = actionKind(a);
-  if (k === "containment") return <Badge tone="blue"><Lock className="size-3" /> containment</Badge>;
-  if (k === "fix") return <Badge tone="green">complete fix</Badge>;
-  if (k === "partial") return <Badge tone="amber">partial mitigation</Badge>;
+  if (k === "containment") return <Badge tone="blue"><Lock className="size-3" /> Containment</Badge>;
+  if (k === "fix") return <Badge tone="green">Full Remediation</Badge>;
+  if (k === "partial") return <Badge tone="amber">Partial Mitigation</Badge>;
   return null;
 }
 
@@ -42,7 +42,7 @@ export function StateBadge({ state }: { state: ActionRecord["state"] }) {
 
 function ParamList({ params }: { params: Record<string, unknown> }) {
   const entries = Object.entries(params);
-  if (entries.length === 0) return <span className="text-xs text-dim">no parameters</span>;
+  if (entries.length === 0) return <span className="text-xs text-dim">No parameters</span>;
   return (
     <div className="flex flex-wrap gap-1.5">
       {entries.map(([k, v]) => (
@@ -82,25 +82,25 @@ function DecideDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="w-full max-w-lg rounded-xl border border-line-2 bg-panel shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="border-b border-line px-5 py-4">
-          <div className="text-xs font-semibold uppercase tracking-wider text-dim">{verb === "approve" ? "Approve and apply this change" : "Reject this proposal"}</div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-dim">{verb === "approve" ? "Approve and Apply Change" : "Reject Proposal"}</div>
           <div className="mt-1 text-lg font-semibold text-white">{actionTitle(a, hostName)}</div>
         </div>
         <div className="space-y-3 px-5 py-4 text-sm">
           <div className="rounded-lg border border-line bg-bg p-3">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-dim">Exact change · <span className="font-mono normal-case">{a.type}</span></div>
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-dim">Exact Change · <span className="font-mono normal-case">{a.type}</span></div>
             <pre className="whitespace-pre-wrap font-mono text-xs text-fg">{JSON.stringify(a.params, null, 2)}</pre>
           </div>
           {verb === "approve" && <p className={cn("text-sm", actionKind(a) === "fix" ? "text-emerald-200" : "text-amber-200")}>{actionConsequence(a)}</p>}
           <div>
-            <label className="mb-1 block text-xs text-muted" htmlFor="note">Note (optional, saved in the event log)</label>
-            <textarea id="note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder={verb === "approve" ? "e.g. approved during incident call, upgrade tonight" : "e.g. revise to block only uploads"} className="w-full rounded-lg border border-line-2 bg-bg px-3 py-2 text-sm text-fg placeholder:text-dim focus:border-accent focus:outline-none" />
+            <label className="mb-1 block text-xs text-muted" htmlFor="note">Note (optional, recorded in the audit log)</label>
+            <textarea id="note" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder={verb === "approve" ? "e.g. Approved during incident bridge; upgrade scheduled tonight" : "e.g. Revise to block file uploads only"} className="w-full rounded-lg border border-line-2 bg-bg px-3 py-2 text-sm text-fg placeholder:text-dim focus:border-accent focus:outline-none" />
           </div>
           {err && <p className="text-sm text-red-300">{err}</p>}
         </div>
         <div className="flex justify-end gap-2 border-t border-line px-5 py-3">
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button variant={verb === "approve" ? "success" : "danger"} onClick={confirm} loading={busy}>
-            {verb === "approve" ? <Check className="size-4" /> : <X className="size-4" />} Confirm {verb}
+            {verb === "approve" ? <Check className="size-4" /> : <X className="size-4" />} {verb === "approve" ? "Confirm Approval" : "Confirm Rejection"}
           </Button>
         </div>
       </div>
@@ -152,9 +152,9 @@ export function ActionCard({
         <ActionFixProgress actionId={a.id} hostName={hostName} />
         <span className="font-semibold text-white">{actionTitle(a, hostName)}</span>
         <KindBadge a={a} />
-        {a.supersedes && <Badge tone="violet">revision of {a.supersedes}</Badge>}
+        {a.supersedes && <Badge tone="violet">Revision of {a.supersedes}</Badge>}
         <span className="ml-auto inline-flex items-center gap-1 text-xs text-dim">
-          {a.proposedBy === "agent" ? <Bot className="size-3.5" /> : <User className="size-3.5" />} proposed by {a.proposedBy === "agent" ? "Sentinel" : "admin"} · {relTime(a.createdAt, Date.now())}
+          {a.proposedBy === "agent" ? <Bot className="size-3.5" /> : <User className="size-3.5" />} proposed by {a.proposedBy === "agent" ? "Sentinel" : "administrator"} · {relTime(a.createdAt, Date.now())}
         </span>
       </div>
       <div className="grid gap-4 p-4 md:grid-cols-[1fr_auto]">
@@ -167,7 +167,7 @@ export function ActionCard({
             </div>
           )}
           <div>
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-dim">Why Sentinel proposed it</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-dim">Rationale</div>
             <p className="mt-0.5 text-sm text-fg">{a.reason}</p>
           </div>
           {actionKind(a) !== "fix" && actionConsequence(a) && (pending || !compact) && (
@@ -198,12 +198,12 @@ export function ActionCard({
           {a.result && (
             <div>
               <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-dim">
-                Result from daemon {a.result.ok ? <Badge tone="green">ok</Badge> : <Badge tone="red">failed</Badge>}
+                Daemon Result {a.result.ok ? <Badge tone="green">Succeeded</Badge> : <Badge tone="red">Failed</Badge>}
               </div>
               {a.result.diff && <DiffBlock diff={a.result.diff} />}
               {a.result.output && (
                 <>
-                  <button onClick={() => setShowOut((s) => !s)} className="mt-1 text-xs text-muted hover:text-fg">{showOut ? "hide" : "show"} command output</button>
+                  <button onClick={() => setShowOut((s) => !s)} className="mt-1 text-xs text-muted hover:text-fg">{showOut ? "Hide" : "Show"} command output</button>
                   {showOut && <pre className="mt-1 max-h-64 overflow-auto rounded-lg border border-line bg-bg p-3 font-mono text-[11px] text-muted">{a.result.output}</pre>}
                 </>
               )}
@@ -211,7 +211,7 @@ export function ActionCard({
           )}
           {a.threadId && mode === "list" && (
             <Link href={`/chat?thread=${encodeURIComponent(a.threadId)}&actionId=${encodeURIComponent(a.id)}`} className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline">
-              <MessageSquare className="size-3.5" /> view discussion
+              <MessageSquare className="size-3.5" /> View conversation
             </Link>
           )}
           {err && <p className="text-sm text-red-300">{err}</p>}
@@ -227,7 +227,7 @@ export function ActionCard({
             </>
           )}
           {!pending && mode === "decide" && (a.state === "approved" || a.state === "running" || a.state === "applied") && (
-            <Button variant="success" disabled><Check className="size-4" /> {a.state === "applied" ? "Approved · applied" : "Approved · applying…"}</Button>
+            <Button variant="success" disabled><Check className="size-4" /> {a.state === "applied" ? "Approved · Applied" : "Approved · Applying…"}</Button>
           )}
           {!pending && mode === "decide" && a.state === "rejected" && (
             <Button variant="secondary" disabled><X className="size-4" /> Rejected</Button>

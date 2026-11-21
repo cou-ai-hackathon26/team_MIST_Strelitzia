@@ -13,6 +13,11 @@ import {
   signalFilter, sourcesOf, type Candidate, type Classified, type ScanContext,
 } from "./engine";
 
+const STATUS_LABEL: Record<string, string> = { exposed: "Exposed", vulnerable_not_exposed: "Vulnerable · Unreachable", not_affected: "Not Affected" };
+const PRIORITY_LABEL: Record<string, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low", info: "Informational" };
+const statusLabel = (s: string) => STATUS_LABEL[s] ?? s;
+const priorityLabel = (p: string) => PRIORITY_LABEL[p] ?? p;
+
 export const scanContexts = new Map<string, ScanContext>();
 const IO = z.object({ scanId: z.string() });
 const ctxOf = (scanId: string) => {
@@ -208,22 +213,22 @@ const upsertFindings = createStep({
       const SEV = { not_affected: 0, vulnerable_not_exposed: 1, exposed: 2 } as const;
       if (!discovered.has(c.cve) && !hadFindingsBefore.get(c.cve)) {
         discovered.add(c.cve);
-        audit("cve_discovered", `Sentinel discovered ${c.cve} (${c.title})${c.kev ? " — on CISA KEV" : ""}${c.cvss ? `, CVSS ${c.cvss.split(" ")[0]}` : ""}; affects ${c.sourcePkgs.join(", ")} in our inventory`, {
+        audit("cve_discovered", `New vulnerability: ${c.cve} — ${c.title}${c.cvss ? ` (CVSS ${c.cvss.split(" ")[0]})` : ""}${c.kev ? ", listed in CISA KEV" : ""}. Affects ${c.sourcePkgs.join(", ")} in the inventory.`, {
           cveId: c.cve, data: { kev: c.kev, reason: c.reason, aliases: c.aliases.slice(0, 6) },
         });
       }
       if (f.status !== "not_affected" && prev?.status !== f.status) {
-        audit("vulnerable_detected", `${e.hostName} is ${f.status === "exposed" ? "EXPOSED" : "vulnerable (not exposed)"} to ${c.cve}: ${e.sourcePackage} ${e.installedVersion}; ${e.reachability}`, {
+        audit("vulnerable_detected", `${e.hostName} assessed ${statusLabel(f.status)} for ${c.cve}: ${e.sourcePackage} ${e.installedVersion}, ${f.status === "exposed" ? "reachable from the network" : "no network path to the vulnerable component"}.`, {
           hostId: f.hostId, cveId: c.cve, data: { findingId: f.id, status: f.status, priority: f.priority, from: prev?.status ?? null },
         });
       }
       if (f.status !== "not_affected" && (!prev || SEV[f.status] > SEV[prev.status])) ctx.escalated.push(f);
       if (!prev) {
         ctx.newFindings.push(f);
-        audit("finding_new", `${e.hostName}: ${c.cve} → ${f.status} (${f.priority})`, { hostId: f.hostId, cveId: f.cveId, data: { findingId: f.id } });
+        audit("finding_new", `${e.hostName} · ${c.cve}: ${statusLabel(f.status)} (${priorityLabel(f.priority)})`, { hostId: f.hostId, cveId: f.cveId, data: { findingId: f.id } });
       } else if (prev.status !== f.status || prev.priority !== f.priority) {
         ctx.changedFindings.push(f);
-        audit("finding_changed", `${e.hostName}: ${c.cve} ${prev.status} → ${f.status} (${f.priority})`, { hostId: f.hostId, cveId: f.cveId, data: { findingId: f.id, from: prev.status } });
+        audit("finding_changed", `${e.hostName} · ${c.cve}: ${statusLabel(prev.status)} → ${statusLabel(f.status)} (${priorityLabel(f.priority)})`, { hostId: f.hostId, cveId: f.cveId, data: { findingId: f.id, from: prev.status } });
       }
     }
     // hosts that had a finding for a candidate CVE but no longer have the package at all → not_affected
@@ -241,7 +246,7 @@ const upsertFindings = createStep({
         });
         saveFinding(f, "removed");
         ctx.changedFindings.push(f);
-        audit("finding_changed", `${host.name}: ${c.cve} ${prevStatus} → not_affected (package removed)`, { hostId: f.hostId, cveId: f.cveId });
+        audit("finding_changed", `${host.name} · ${c.cve}: ${statusLabel(prevStatus)} → Not Affected (package removed)`, { hostId: f.hostId, cveId: f.cveId });
       }
     }
     return inputData;

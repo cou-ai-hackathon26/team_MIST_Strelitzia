@@ -53,13 +53,13 @@ export function actionConsequence(a: Pick<ActionRecord, "type" | "params">): str
     case "firewall_port":
       return p.state === "open"
         ? `Port ${String(p.port)}/${String(p.protocol)} becomes reachable again.`
-        : `Containment — the service on port ${String(p.port)}/${String(p.protocol)} goes offline for everyone. Upgrade is the complete fix.`;
+        : `Containment — the service on port ${String(p.port)}/${String(p.protocol)} becomes unavailable to all clients. Upgrading is the full remediation.`;
     case "upgrade_packages":
-      return "Installs the latest distro build of these packages (complete fix when a patched build exists). Previous versions are recorded for rollback.";
+      return "Installs the latest distribution build of these packages (full remediation when a patched build exists). Previous versions are recorded for rollback.";
     case "nginx_block_multipart":
-      return "Partial mitigation — nginx rejects multipart/form-data requests (file uploads stop working). Not a fix.";
+      return "Partial mitigation — nginx rejects multipart/form-data requests (file uploads are disabled). Does not remediate the vulnerability.";
     case "set_php_directive":
-      return "Partial mitigation — changes one php.ini directive and restarts that PHP SAPI. Never makes the server safe on its own.";
+      return "Partial mitigation — changes one php.ini directive and restarts that PHP SAPI. Does not remediate the vulnerability on its own.";
     case "restart_service":
       return "Briefly restarts the service.";
     default:

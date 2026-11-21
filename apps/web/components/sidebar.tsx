@@ -14,10 +14,10 @@ const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboard },
   { href: "/findings", label: "Findings", icon: Bug },
   { href: "/reports", label: "Reports", icon: FileText },
-  { href: "/chat", label: "Ask Sentinel", icon: MessageSquare },
+  { href: "/chat", label: "Sentinel", icon: MessageSquare },
   { href: "/approvals", label: "Approvals", icon: CheckSquare },
-  { href: "/wild", label: "CVEs in the wild", icon: Globe },
-  { href: "/events", label: "Event log", icon: ScrollText },
+  { href: "/wild", label: "Threat Intelligence", icon: Globe },
+  { href: "/events", label: "Audit Log", icon: ScrollText },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -66,7 +66,7 @@ export function Sidebar() {
         })}
         {data && data.hosts.length > 0 && (
           <div className="pt-5">
-            <div className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-dim">Hosts</div>
+            <div className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-dim">Assets</div>
             {data.hosts.map((h) => {
               const active = pathname === `/hosts/${h.id}`;
               return (
@@ -78,7 +78,7 @@ export function Sidebar() {
                   <Server className="size-3.5" />
                   <span className="flex-1 truncate">{h.name}</span>
                   {h.findingCounts.exposed > 0 ? (
-                    <span className="size-2 rounded-full bg-exposed" title="exposed" />
+                    <span className="size-2 rounded-full bg-exposed" title="Exposed" />
                   ) : (
                     <span className={cn("size-2 rounded-full", h.status === "online" ? "bg-emerald-500/70" : "bg-slate-600")} />
                   )}
@@ -93,13 +93,13 @@ export function Sidebar() {
           <Activity className="size-3.5" />
           <span className="flex-1">Sentinel</span>
           <LiveDot ok={!error && !!data} />
-          <span className={error ? "text-red-300" : "text-emerald-300"}>{error ? "offline" : data ? "connected" : "…"}</span>
+          <span className={error ? "text-red-300" : "text-emerald-300"}>{error ? "Offline" : data ? "Connected" : "…"}</span>
         </div>
         <div className="flex items-center gap-2 rounded-lg bg-panel-2/60 px-2 py-1.5">
           <CircleUser className="size-4 text-blue-300" />
           <div className="min-w-0 flex-1 leading-tight">
             <div className="truncate text-sm font-medium text-fg">{me ?? "…"}</div>
-            <div className="text-[10px] text-dim">administrator</div>
+            <div className="text-[10px] text-dim">Administrator</div>
           </div>
           <button onClick={logout} title="Sign out" className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs text-muted hover:bg-panel hover:text-fg">
             <LogOut className="size-3.5" /> Sign out

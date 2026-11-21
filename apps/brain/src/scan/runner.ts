@@ -50,7 +50,7 @@ async function runOnce(trigger: string, actor: string) {
     classified: [], newFindings: [], changedFindings: [], escalated: [], reportId: null, reportsSent: 0, proposedActions: 0, notes: [],
   };
   scanContexts.set(scanId, ctx);
-  audit("scan_started", `Scan started (${trigger})`, { actor, data: { scanId } });
+  audit("scan_started", `Scan started (${trigger.replace(/_/g, " ")})`, { actor, data: { scanId } });
   const t0 = Date.now();
   try {
     const run = await scanWorkflow.createRun();

@@ -16,13 +16,12 @@ export function ShieldMark({ className }: { className?: string }) {
   );
 }
 
-export function Logo({ sub = true }: { sub?: boolean }) {
+export function Logo() {
   return (
     <div className="flex items-center gap-2.5">
       <ShieldMark />
       <div className="leading-tight">
         <div className="font-display text-[18px] text-white">Prohori</div>
-        {sub && <div className="text-[11px] text-muted">প্রহরী · the sentinel</div>}
       </div>
     </div>
   );

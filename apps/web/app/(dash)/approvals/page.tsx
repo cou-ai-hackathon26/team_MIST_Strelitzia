@@ -25,11 +25,11 @@ export default function ApprovalsPage() {
 
   return (
     <>
-      <PageHeader title="Approvals" icon={<CheckSquare className="size-6 text-blue-400" />} sub="Fixes proposed by Sentinel. Review each one in conversation, then a named admin decides." right={<LiveTag updatedAt={actions.updatedAt} error={actions.error} now={now} />} />
+      <PageHeader title="Approvals" icon={<CheckSquare className="size-6 text-blue-400" />} sub="Remediation proposed by Sentinel. Review each change in conversation; every approval is attributed and logged." right={<LiveTag updatedAt={actions.updatedAt} error={actions.error} now={now} />} />
       <div className="mb-5 flex items-start gap-2 rounded-lg border border-line bg-panel px-3 py-2.5 text-xs text-muted">
         <ShieldAlert className="mt-0.5 size-4 shrink-0 text-blue-400" />
         <span>
-          <b className="text-fg">Human in the loop.</b> The AI can only <i>propose</i> actions from a fixed allowlist (close a firewall port, upgrade packages, block multipart, set a php.ini directive, restart a service) and can revise a proposal when you ask. It has no tool to approve or run anything. A named administrator approves after reviewing; the host daemon re-validates every parameter locally and records a rollback point. Every decision is in the Event log.
+          <b className="text-fg">Human-in-the-loop control.</b> Sentinel can only <i>propose</i> actions from a fixed allowlist (close a firewall port, upgrade packages, block multipart uploads, set a php.ini directive, restart a service) and can revise a proposal on request. It cannot approve or execute changes. A named administrator approves after review; the daemon on each asset re-validates every parameter locally and records a rollback point. Every decision is recorded in the Audit Log.
         </span>
       </div>
       <ErrorBanner error={actions.error} />
@@ -37,17 +37,17 @@ export default function ApprovalsPage() {
         <Skeleton className="h-48" />
       ) : (
         <>
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Awaiting decision ({inFlight.filter((a) => a.state === "pending").length})</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Awaiting Decision ({inFlight.filter((a) => a.state === "pending").length})</h2>
           <div className="mb-8 space-y-4">
             {inFlight.length === 0 ? (
-              <Empty>No actions are waiting for approval. Ask Sentinel in Chat to propose a fix.</Empty>
+              <Empty>No actions awaiting approval. Ask Sentinel to recommend remediation.</Empty>
             ) : (
               inFlight.map((a) => <ActionCard key={a.id} a={a} hostName={hostName(a.hostId)} mode="list" finding={findingOf(a)} onChange={() => void actions.refresh()} />)
             )}
           </div>
-          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Decided ({decided.length})</h2>
+          <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted">Decision History ({decided.length})</h2>
           <div className="space-y-4">
-            {decided.length === 0 ? <Empty>No decisions yet.</Empty> : decided.map((a) => <ActionCard key={a.id} a={a} hostName={hostName(a.hostId)} mode="list" finding={findingOf(a)} onChange={() => void actions.refresh()} compact />)}
+            {decided.length === 0 ? <Empty>No decisions recorded.</Empty> : decided.map((a) => <ActionCard key={a.id} a={a} hostName={hostName(a.hostId)} mode="list" finding={findingOf(a)} onChange={() => void actions.refresh()} compact />)}
           </div>
         </>
       )}

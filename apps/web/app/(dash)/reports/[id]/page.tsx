@@ -25,11 +25,11 @@ export default function ReportDetail({ params }: { params: Promise<{ id: string 
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted">
               <span>{fmtDate(r.createdAt)}</span>
               {r.emailedTo.length > 0 ? (
-                <Badge tone="blue"><Mail className="size-3" /> emailed to {r.emailedTo.join(", ")}{r.emailedAt ? ` · ${fmtDate(r.emailedAt)}` : ""}</Badge>
+                <Badge tone="blue"><Mail className="size-3" /> Sent to {r.emailedTo.join(", ")}{r.emailedAt ? ` · ${fmtDate(r.emailedAt)}` : ""}</Badge>
               ) : (
-                <Badge tone="gray">not emailed</Badge>
+                <Badge tone="gray">Not sent</Badge>
               )}
-              <a href="http://127.0.0.1:8025" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline">open mailbox <ExternalLink className="size-3" /></a>
+              <a href="http://127.0.0.1:8025" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-blue-400 hover:underline">Open mailbox <ExternalLink className="size-3" /></a>
             </div>
             {r.findingIds.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5 text-xs">

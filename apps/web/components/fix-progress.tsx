@@ -9,13 +9,13 @@ function label(p: InProgress, hostName: string): { text: string; tone: string; s
   const what = actionTitle(p.action, hostName);
   switch (p.phase) {
     case "applying":
-      return { text: `Applying fix: ${what}…`, tone: "border-blue-500/40 bg-blue-500/10 text-blue-100", spin: "loader" };
+      return { text: `Applying remediation: ${what}…`, tone: "border-blue-500/40 bg-blue-500/10 text-blue-100", spin: "loader" };
     case "rolling_back":
       return { text: `Rolling back: ${what}…`, tone: "border-violet-500/40 bg-violet-500/10 text-violet-100", spin: "loader" };
     case "rechecking":
       return p.afterRollback
-        ? { text: "Rolled back — Sentinel is re-checking this server…", tone: "border-violet-500/40 bg-violet-500/10 text-violet-100", spin: "refresh" }
-        : { text: "Fix applied — Sentinel is re-checking this server…", tone: "border-emerald-500/40 bg-emerald-500/10 text-emerald-100", spin: "refresh" };
+        ? { text: "Rolled back — Sentinel is re-assessing…", tone: "border-violet-500/40 bg-violet-500/10 text-violet-100", spin: "refresh" }
+        : { text: "Remediation applied — Sentinel is re-assessing…", tone: "border-emerald-500/40 bg-emerald-500/10 text-emerald-100", spin: "refresh" };
   }
 }
 

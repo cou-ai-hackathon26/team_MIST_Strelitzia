@@ -35,14 +35,14 @@ All three report "PHP 8.3.6"; a version-number scanner flags all three. All thre
 ## Demo script (~90 s)
 
 1. **Overview**: three servers online, hundreds of raw "naive scanner" alerts, nothing urgent (PHP2Shell is held back — the replay starts on Oct 20).
-2. **Settings → Demo panel → "Inject PHP2Shell"** (replays the Oct 21 disclosure). Within one scan interval (~45 s), with nobody touching anything, Sentinel discovers it: red banner on bank-web-01, the "Recent detections" table shows only bank-web-01 as an emergency.
+2. **Settings → Demonstration Controls → "Replay PHP2Shell Disclosure"** (replays the Oct 21 disclosure). Within one scan interval (~45 s), with nobody touching anything, Sentinel discovers it: red banner on bank-web-01, the "Recent detections" table shows only bank-web-01 as an emergency.
 3. **Mailpit**: the report email to it-security@ and soc@.
-4. **Ask Sentinel**: "Why is bank-web-02 safe?" — watch the tool calls.
+4. **Sentinel** (chat): "Why is bank-web-02 safe?" — watch the tool calls.
 5. **Approvals → Review with Sentinel** on "Close port 80/tcp on bank-web-01": ask "can we avoid taking the site offline?" → the agent revises the proposal (or keep the firewall) → **Approve** with a note.
 6. The daemon applies it; next scan downgrades bank-web-01 to *vulnerable, not exposed* (contained, still upgrade). **Event log** shows who approved what, with the note and the discussion link.
 7. Roll back from Approvals → back to exposed.
 
-**Reset between rehearsals:** Settings → "Reset demo". It rolls back every fix still applied to the servers (PHP upgrades, firewall rules, upload blocks, php.ini edits) through the daemons, re-holds PHP2Shell, and clears its findings, reports and open proposals. Give the rollbacks ~10–60 s before injecting again.
+**Reset between rehearsals:** Settings → "Reset Environment". It rolls back every fix still applied to the servers (PHP upgrades, firewall rules, upload blocks, php.ini edits) through the daemons, re-holds PHP2Shell, and clears its findings, reports and open proposals. Give the rollbacks ~10–60 s before injecting again.
 
 If the dashboard shows **"Demo check: no server is vulnerable…"** after an inject, the servers were patched outside a fix Sentinel can still roll back (e.g. records already deleted). Rebuild the demo servers from their images:
 
