@@ -6,11 +6,14 @@
     "apps/*"
   ],
   "scripts": {
+    "setup": "bun install && cd apps/daemon && bun run build",
     "brain": "cd apps/brain && bun run dev",
     "web": "cd apps/web && bun run dev",
+    "web:prod": "cd apps/web && bun run build && bun run start",
     "daemon:build": "cd apps/daemon && bun run build",
     "targets:up": "docker compose -f infra/docker-compose.yml up -d --build",
     "targets:down": "docker compose -f infra/docker-compose.yml down",
-    "targets:reset": "docker compose -f infra/docker-compose.yml up -d --force-recreate target-a target-b target-c"
+    "targets:reset": "docker compose -f infra/docker-compose.yml up -d --force-recreate target-a target-b target-c",
+    "healthcheck": "bun --env-file=.env scripts/healthcheck.ts"
   }
 }

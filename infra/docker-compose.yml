@@ -3,7 +3,7 @@
 # The daemon binary dir apps/daemon/bin is bind-mounted at /opt/prohori/bin (build first: bun run daemon:build).
 # (A directory mount, not a single file: Docker Desktop loses single-file mounts when the binary is rebuilt.)
 # Rebuilding the daemon only needs a container restart, not an image rebuild.
-# PROHORI_BRAIN_URL can be overridden from the shell (e.g. if port 4000 is taken on the host).
+# PROHORI_BRAIN_URL can be overridden from the shell (e.g. if port 4400 is taken on the host).
 name: prohori
 
 x-target: &target

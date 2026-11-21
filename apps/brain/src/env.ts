@@ -13,7 +13,7 @@ const dbPath = resolve(APP_ROOT, process.env.BRAIN_DB_PATH ?? "./data/prohori.db
 mkdirSync(dirname(dbPath), { recursive: true });
 
 export const env = {
-  port: Number(process.env.BRAIN_PORT ?? 4000),
+  port: Number(process.env.BRAIN_PORT ?? 4400),
   apiToken: req("BRAIN_API_TOKEN"),
   dbPath,
   mastraDbPath: resolve(dirname(dbPath), "mastra.db"),
@@ -44,6 +44,6 @@ export const env = {
     userAgent: process.env.LLM_USER_AGENT ?? "prohori/0.1",
   },
   /** Public URL daemons use to reach the brain (for enroll install command). */
-  publicUrl: process.env.BRAIN_PUBLIC_URL ?? `http://127.0.0.1:${process.env.BRAIN_PORT ?? 4000}`,
+  publicUrl: process.env.BRAIN_PUBLIC_URL ?? `http://127.0.0.1:${process.env.BRAIN_PORT ?? 4400}`,
   firstScanDelayMs: Number(process.env.FIRST_SCAN_DELAY_MS ?? 20_000),
 };

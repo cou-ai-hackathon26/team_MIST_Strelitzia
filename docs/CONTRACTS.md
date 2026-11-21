@@ -65,11 +65,11 @@ const anthropic = createAnthropic({
 // Mastra: new Agent({ id, name, instructions, model: anthropic(process.env.LLM_MODEL!), tools })
 // agent.generate(prompt) ; structured: agent.generate(prompt, { structuredOutput: { schema } }) → result.object
 ```
-Smoke-tested 2026-11-15: Mastra 1.83 Agent + createTool tool call + structuredOutput all work.
+Smoke-tested: Mastra 1.83 Agent + createTool tool call + structuredOutput all work.
 
 Mastra docs: MCP server `mastra-docs` (if available in your session) or the bundled docs at `apps/brain/node_modules/@mastra/core/dist/docs/` (`SKILL.md`, `references/`). Mastra's API changes often — check docs/types before using an API.
 
-## Firewall mitigation (PRIMARY demo action, added 2026-11-15)
+## Firewall mitigation (PRIMARY demo action)
 `firewall_port {port, protocol, state: closed|open}`: the daemon adds or removes an iptables INPUT DROP/REJECT rule tagged with comment `prohori` (it only ever touches rules carrying that tag; port 22 is refused). Inventory reports `firewall.closedPorts`; query `firewall_rules`. Docker targets need `cap_add: [NET_ADMIN]` + iptables installed.
 Brain reachability MUST honour it: a service whose port is closed by a Prohori rule is NOT network-reachable. Demo loop: PHP2Shell found → A exposed/critical → agent auto-proposes `firewall_port {port:80, protocol:"tcp", state:"closed"}` (immediate containment; takes that one site offline) and, separately, `upgrade_packages` (the complete fix) → human approves the firewall action → daemon closes 80 → inventory refresh → rescan → A becomes `vulnerable_not_exposed` (rationale: contained by firewall, still upgrade) → rollback re-opens 80 → A exposed again.
 
