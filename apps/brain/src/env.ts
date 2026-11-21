@@ -9,6 +9,24 @@ function req(name: string, fallback?: string): string {
   return v;
 }
 
+const csvIds = (s: string) => s.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean);
+
+function parseScenarios(raw: string): { id: string; title: string; cveIds: string[] }[] {
+  const out: { id: string; title: string; cveIds: string[] }[] = [];
+  for (const part of raw.split(";").map((x) => x.trim()).filter(Boolean)) {
+    const a = part.indexOf(":");
+    const b = part.lastIndexOf(":");
+    if (a < 0 || b <= a) { console.warn(`[env] DEMO_SCENARIOS: ignoring malformed entry "${part}"`); continue; }
+    const id = part.slice(0, a).trim();
+    const title = part.slice(a + 1, b).trim() || id;
+    const cveIds = csvIds(part.slice(b + 1));
+    if (!/^[a-z0-9][a-z0-9_-]*$/i.test(id) || !cveIds.length) { console.warn(`[env] DEMO_SCENARIOS: ignoring malformed entry "${part}"`); continue; }
+    out.push({ id, title, cveIds });
+  }
+  return out;
+}
+const scenarios = parseScenarios(process.env.DEMO_SCENARIOS ?? "");
+
 const dbPath = resolve(APP_ROOT, process.env.BRAIN_DB_PATH ?? "./data/prohori.db");
 mkdirSync(dirname(dbPath), { recursive: true });
 
@@ -26,10 +44,10 @@ export const env = {
       return { id: id!, name: name ?? id!, token: token ?? "" };
     })
     .filter((h) => h.id && h.token),
-  replayHold: (process.env.DEMO_REPLAY_HOLD ?? "CVE-2026-109618,CVE-2026-109619")
-    .split(",")
-    .map((s) => s.trim().toUpperCase())
-    .filter(Boolean),
+  /** Replayable disclosures: DEMO_SCENARIOS="id:Title:CVE,CVE;id:Title:CVE". */
+  scenarios,
+  /** Every embargoed CVE: DEMO_REPLAY_HOLD ∪ all scenario CVEs. */
+  replayHold: [...new Set([...csvIds(process.env.DEMO_REPLAY_HOLD ?? ""), ...scenarios.flatMap((s) => s.cveIds)])],
   smtpHost: process.env.SMTP_HOST ?? "127.0.0.1",
   smtpPort: Number(process.env.SMTP_PORT ?? 1025),
   reportFrom: process.env.REPORT_FROM ?? "prohori@localhost",

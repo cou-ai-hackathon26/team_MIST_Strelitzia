@@ -1,12 +1,14 @@
 // Tools for the Prohori chat agent. There is deliberately NO approve tool: the AI can only propose.
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod";
-import { ACTION_TYPES, QUERY_NAMES, type ActionType, type Finding } from "@prohori/shared";
+import { ACTION_DESCRIPTIONS, ACTION_TYPES, CONFIG_DIRECTIVE_ALLOWLIST, CONFIG_PATHS, QUERY_NAMES, type ActionType, type Finding } from "@prohori/shared";
 import {
   audit, getFinding as dbGetFinding, getHostRow, getInventory as dbGetInventory, getSettings, hostSummary, listFindings as dbListFindings,
-  listHostRows, newId, nowIso, saveFinding, saveReport, getAction as dbGetAction, listActions as dbListActions,
+  listHostRows, newId, nowIso, saveFinding, saveReport, getAction as dbGetAction, listActions as dbListActions, getProfile as dbGetProfile,
 } from "../db";
-import { isOnline, queryHost } from "../gateway";
+import { hostQuery } from "../scan/facts";
+import { actionCatalog } from "../scan/plan";
+import { isOnline } from "../gateway";
 import { proposeAction, reviseAction } from "../actions";
 import { kevEntry } from "../vuln/kev";
 import { allIds, cveOf, distroFixed, ecosystemFor, getVuln, getVulns, queryBatch, severityOf, upstreamRanges } from "../vuln/osv";
@@ -57,16 +59,13 @@ export const getInventoryTool = createTool({
 
 export const runHostQueryTool = createTool({
   id: "runHostQuery",
-  description: "Run one named, read-only osquery query LIVE on a host via its daemon. Only these names are allowed: " + QUERY_NAMES.join(", "),
-  inputSchema: z.object({ hostId: hostIdSchema, queryName: z.enum(QUERY_NAMES) }),
-  execute: async ({ hostId, queryName }) => {
+  description: "Run one named, read-only query LIVE on a host via its daemon (falls back to the stored inventory if the daemon cannot answer). Only these names are allowed: " +
+    QUERY_NAMES.join(", ") + `. "config_file" needs params {"path": "<file>"} matching one of: ${CONFIG_PATHS.join(", ")}.`,
+  inputSchema: z.object({ hostId: hostIdSchema, queryName: z.enum(QUERY_NAMES), params: z.record(z.string(), z.string()).optional() }),
+  execute: async ({ hostId, queryName, params }) => {
     const h = resolveHost(hostId);
-    try {
-      const rows = await queryHost(h.id, queryName);
-      return { hostId: h.id, queryName, rowCount: rows.length, rows: rows.slice(0, 150) };
-    } catch (e) {
-      return { hostId: h.id, queryName, error: (e as Error).message };
-    }
+    const r = await hostQuery(h.id, queryName, params ?? {});
+    return { hostId: h.id, queryName, source: r.source, ...(r.note ? { note: r.note } : {}), ...(r.error ? { error: r.error } : {}), rowCount: r.rows.length, rows: r.rows.slice(0, 150) };
   },
 });
 
@@ -110,7 +109,7 @@ export const checkKevTool = createTool({
 
 export const findVulnsForPackageTool = createTool({
   id: "findVulnsForPackage",
-  description: "Query OSV live for one SOURCE package (e.g. php8.3) at the version installed on a host, in the host's distro ecosystem. Shows which are KEV/critical.",
+  description: "Query OSV live for one SOURCE package (as listed in the inventory's `source` field) at the version installed on a host, in the host's distro ecosystem. Shows which are KEV/critical.",
   inputSchema: z.object({ hostId: hostIdSchema, sourcePackage: z.string() }),
   execute: async ({ hostId, sourcePackage }) => {
     const h = resolveHost(hostId);
@@ -149,7 +148,7 @@ export const listFindingsTool = createTool({
 
 export const getFindingTool = createTool({
   id: "getFinding",
-  description: "Full finding with rationale, mitigations and the deterministic evidence (installed vs fixed build, reachability, listening ports, config).",
+  description: "Full finding: rationale, mitigations, deterministic evidence (installed vs fixed build, listeners, firewall) and Sentinel's investigation (triage reason, preconditions with cited steps S1…, tool steps, conclusion, guardrail overrides, ranked remediation plan).",
   inputSchema: z.object({ id: z.string() }),
   execute: async ({ id }) => dbGetFinding(id) ?? { error: "finding not found" },
 });
@@ -178,7 +177,7 @@ export const sendReportTool = createTool({
         kev: !!k, kevInfo: k, cvss: f0.cvss,
       } as unknown as Candidate;
       const sel = fs.filter((f) => f.cveId === cve);
-      groups.push({ candidate: cand, findings: sel.filter((f) => f.status !== "not_affected"), alsoChecked: sel.filter((f) => f.status === "not_affected") });
+      groups.push({ candidate: cand, profile: dbGetProfile(cve), findings: sel.filter((f) => f.status !== "not_affected"), alsoChecked: sel.filter((f) => f.status === "not_affected") });
     }
     const session = `prohori-report-${(ctx as any)?.agent?.threadId ?? crypto.randomUUID()}`;
     const markdown = await writeReport(session, { cves: groups, orgHosts: listHostRows().length });
@@ -212,9 +211,16 @@ function chatCtx(ctx: any): { threadId: string | null; actor: string | null } {
 
 const actionTypeSchema = z.enum(ACTION_TYPES as [ActionType, ...ActionType[]]);
 const ACTION_TYPES_HELP =
-  "Types: firewall_port {port: number, protocol: 'tcp'|'udp', state: 'closed'|'open'} (immediate containment, takes the service on that port offline; NOT a fix; port 22 refused), " +
-  "upgrade_packages {packages: string[]} (complete fix), nginx_block_multipart {} (partial: blocks uploads, site stays up), " +
-  "set_php_directive {sapi: 'fpm'|'cli'|'apache2', directive, value} (partial), restart_service {service: 'nginx'|'php8.3-fpm'}.";
+  "Allowed actions (catalog from the daemon contract, JSON): " + JSON.stringify(actionCatalog().actions.map((a) => ({ type: a.type, description: a.description, constraint: a.constraint, params: a.params }))) +
+  " Config directives allowed for set_config_directive: " + JSON.stringify(CONFIG_DIRECTIVE_ALLOWLIST) + ".";
+void ACTION_DESCRIPTIONS;
+
+export const getThreatProfileTool = createTool({
+  id: "getThreatProfile",
+  description: "Sentinel's cached threat profile of a CVE (derived from its advisories): component, attack vector, checkable preconditions, complete fix, partial mitigations with trade-offs, sources.",
+  inputSchema: z.object({ cveId: z.string() }),
+  execute: async ({ cveId }) => dbGetProfile(cveId.toUpperCase()) ?? { cveId, error: "no threat profile yet (Sentinel builds one when a scan selects the CVE for investigation)" },
+});
 
 export const proposeFixTool = createTool({
   id: "proposeFix",
@@ -281,6 +287,7 @@ export const prohoriTools = {
   findVulnsForPackage: findVulnsForPackageTool,
   listFindings: listFindingsTool,
   getFinding: getFindingTool,
+  getThreatProfile: getThreatProfileTool,
   runScanNow: runScanNowTool,
   sendReport: sendReportTool,
   proposeFix: proposeFixTool,

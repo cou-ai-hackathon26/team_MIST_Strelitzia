@@ -6,9 +6,9 @@ import type {
   ChatThreadSummary, EnrollResponse, FindingStatus, HostDetailResponse, Settings, StatusResponse, WildCve,
 } from "@prohori/shared";
 import {
-  audit, createHost, deleteAction, getAction, saveAction, deleteFindingsForCves, deleteReport, findingTotals, getFinding, getHostRow, getInventory,
+  audit, createHost, getAction, saveAction, findingTotals, getFinding, getHostRow, getInventory,
   getReport, getSettings, holdState, hostSummary, listActions, listAudit, listFindings, listHostRows, listReports, saveSettings,
-  setHold, touchChatThread, upsertChatThreadIfMissing, listChatThreads,
+  touchChatThread, getProfile, upsertChatThreadIfMissing, listChatThreads,
 } from "./db";
 import { env } from "./env";
 import { isOnline } from "./gateway";
@@ -18,6 +18,7 @@ import { scanState, scheduleScans, startScan } from "./scan/runner";
 import { kevRecent } from "./vuln/kev";
 import { mastra } from "./mastra";
 import { scheduleWild } from "./wild";
+import { demoWarning, inject, reset as resetDemo, scenarios } from "./demo";
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "http://localhost:3000",
@@ -118,22 +119,6 @@ async function chat(req: Request, actor: string): Promise<Response> {
   return withCors(createUIMessageStreamResponse({ stream: stream as any }));
 }
 
-// ---------------------------------------------------------------- demo readiness
-/**
- * After "Inject", if a full scan has finished and none of the injected CVEs is vulnerable anywhere, the demo servers
- * have most likely been patched by an earlier rehearsal (Reset demo only rolls back fixes it still has records of).
- */
-function demoWarning(injected: string[], findings: ReturnType<typeof listFindings>): string | null {
-  if (!injected.length) return null;
-  const lastInject = listAudit(50, { kind: "demo_inject" }).find((e) => !/reset the demo/i.test(e.message));
-  const sc = scanState();
-  if (!lastInject || sc.running || !sc.lastStartedAt || Date.parse(sc.lastStartedAt) < Date.parse(lastInject.at)) return null;
-  const hit = findings.some((f) => injected.includes(f.cveId) && (f.status === "exposed" || f.status === "vulnerable_not_exposed"));
-  if (hit) return null;
-  return "No asset is vulnerable to the released CVEs — the lab assets already run patched builds, likely from an earlier rehearsal. " +
-    "Use Reset Environment to roll back applied remediation, or run `bun run targets:reset` to rebuild the lab assets, then replay the disclosure again.";
-}
-
 // ---------------------------------------------------------------- chat threads
 let backfilled = false;
 async function backfillThreads() {
@@ -206,7 +191,7 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
         pendingActions: listActions({ state: "pending" }).length,
         inKevExposed: findings.filter((f) => f.status === "exposed" && f.inKev).length,
         recentEvents: listAudit(15),
-        demo: { replayHeld: hs.held, injected: hs.injected, warning: demoWarning(hs.injected, findings) },
+        demo: { replayHeld: hs.held, injected: hs.injected, warning: demoWarning(), scenarios: scenarios() },
       };
       return json(res);
     }
@@ -307,47 +292,16 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
       return json(audit("login", `${who} signed in to the dashboard`, { actor: who }));
     }
     if (m === "POST" && path === "/api/demo/inject") {
-      const b = await body<{ cveIds?: string[] }>(req);
-      const all = new Set(env.replayHold);
-      const ids = (b.cveIds?.length ? b.cveIds.map((s) => s.toUpperCase()) : env.replayHold).filter((id) => all.has(id) || holdState().held.includes(id));
-      setHold(ids, "injected");
-      audit("demo_inject", `${actor === "unknown" ? "Operator" : actor} replayed the disclosure of ${ids.join(", ")}; Sentinel will assess it on the next scheduled scan`, { actor, data: { cveIds: ids } });
-      return json({ injected: holdState().injected });
+      const b = await body<{ scenarioId?: string; cveIds?: string[] }>(req);
+      return json(inject(actor, { scenarioId: typeof b.scenarioId === "string" && b.scenarioId ? b.scenarioId : undefined, cveIds: Array.isArray(b.cveIds) ? b.cveIds : undefined }));
     }
     if (m === "POST" && path === "/api/demo/reset") {
-      // 1) put the servers back: roll back every state-changing action that is still applied (newest first)
-      const REVERTIBLE = new Set(["upgrade_packages", "firewall_port", "nginx_block_multipart", "set_php_directive"]);
-      const restoring: string[] = [];
-      const failed: string[] = [];
-      const keep = new Set<string>();
-      for (const a of listActions({ state: "applied" })) {
-        if (!REVERTIBLE.has(a.type) || a.rolledBackBy) continue;
-        try {
-          rollbackAction(a.id, { actor, note: "demo reset: restoring the server" });
-          restoring.push(describeAction(a));
-          keep.add(a.id);
-        } catch (e) {
-          failed.push(`${describeAction(a)}: ${(e as Error).message}`);
-        }
-      }
-      // 2) re-hold the CVEs and clear their findings / reports / open proposals (keep records being rolled back)
-      const ids = env.replayHold;
-      setHold(ids, "held");
-      const findingIds = new Set(deleteFindingsForCves(ids));
-      let reports = 0, actions = 0;
-      for (const r of listReports()) {
-        if (r.findingIds.some((id) => findingIds.has(id))) { deleteReport(r.id); reports++; }
-      }
-      for (const a of listActions()) {
-        if (keep.has(a.id)) continue;
-        if (a.findingId && findingIds.has(a.findingId) && !["applied", "running", "approved"].includes(a.state)) { deleteAction(a.id); actions++; }
-      }
-      audit("demo_inject", `${actor === "unknown" ? "Operator" : actor} reset the demonstration environment: re-embargoed ${ids.join(", ")}; cleared ${findingIds.size} findings, ${reports} reports, ${actions} open proposals` +
-        (restoring.length ? `; rolling back ${restoring.length} applied remediation(s): ${restoring.join("; ")}` : "") +
-        (failed.length ? `; could not roll back: ${failed.join("; ")}` : ""), {
-        actor, data: { cveIds: ids, findings: findingIds.size, reports, actions, restoring, failed },
-      });
-      return json({ ok: true, restoring, failed });
+      const b = await body<{ scenarioId?: string }>(req);
+      return json(resetDemo(actor, { scenarioId: typeof b.scenarioId === "string" && b.scenarioId ? b.scenarioId : undefined }));
+    }
+    if (m === "GET" && parts[0] === "profiles" && parts.length === 2) {
+      const p = getProfile(decodeURIComponent(parts[1]!).toUpperCase());
+      return p ? json(p) : err(404, "no threat profile for this CVE yet");
     }
     if (m === "POST" && path === "/api/chat") return await chat(req, actor);
     if (m === "GET" && parts[0] === "chat" && parts[1] === "threads" && parts.length === 2) {

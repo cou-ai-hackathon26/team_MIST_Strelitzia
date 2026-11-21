@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { PHP_DIRECTIVES, type InstalledPackage, type InventorySnapshot, type ListeningPort, type OsInfo, type QueryName } from "@prohori/shared";
 import { run } from "./exec";
 import { getFirewall } from "./firewall";
+import { readConfigFile } from "./configfile";
 
 let OSQUERYI = "osqueryi";
 export function setOsqueryi(path: string) {
@@ -162,9 +163,36 @@ export function getNginxConfig(): { key: string; value: string }[] {
   return out;
 }
 
+// ---------- services ----------
+
+/** `{name, state}[]`: systemd units when systemd is PID 1, else SysV `service --status-all` (containers). */
+export async function getServices(): Promise<{ name: string; state: string }[]> {
+  if (existsSync("/run/systemd/system")) {
+    const r = await run(["systemctl", "list-units", "--type=service", "--all", "--no-legend", "--plain", "--no-pager"], { timeoutMs: 20_000 });
+    if (r.code !== 0) throw new Error(`systemctl failed (exit ${r.code}): ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
+    const out: { name: string; state: string }[] = [];
+    for (const line of r.stdout.split("\n")) {
+      // UNIT LOAD ACTIVE SUB DESCRIPTION
+      const [unit, load, , sub] = line.trim().split(/\s+/);
+      if (!unit?.endsWith(".service") || load === "not-found") continue;
+      out.push({ name: unit.slice(0, -".service".length), state: sub ?? "unknown" });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  const r = await run(["service", "--status-all"], { timeoutMs: 30_000 });
+  if (r.code !== 0 && !r.stdout.trim()) throw new Error(`service --status-all failed (exit ${r.code}): ${r.stderr.trim().slice(0, 300)}`);
+  const states: Record<string, string> = { "+": "running", "-": "stopped", "?": "unknown" };
+  const out: { name: string; state: string }[] = [];
+  for (const line of (r.stdout + "\n" + r.stderr).split("\n")) {
+    const m = /^\s*\[\s*([+?-])\s*\]\s+(\S+)/.exec(line);
+    if (m) out.push({ name: m[2]!, state: states[m[1]!]! });
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 // ---------- dispatch ----------
 
-export async function runNamedQuery(name: QueryName): Promise<Record<string, unknown>[]> {
+export async function runNamedQuery(name: QueryName, params: Record<string, string> = {}): Promise<Record<string, unknown>[]> {
   switch (name) {
     case "packages":
       return getPackages() as unknown as Promise<Record<string, unknown>[]>;
@@ -183,6 +211,10 @@ export async function runNamedQuery(name: QueryName): Promise<Record<string, unk
     }
     case "nginx_config":
       return getNginxConfig();
+    case "config_file":
+      return readConfigFile(params.path);
+    case "services":
+      return getServices();
   }
 }
 

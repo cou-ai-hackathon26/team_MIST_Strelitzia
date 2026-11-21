@@ -63,6 +63,8 @@ export const QueryMsg = z.object({
   type: z.literal("query"),
   requestId: z.string(),
   name: z.enum(QUERY_NAMES),
+  /** Only for `config_file`: { path } — must match CONFIG_PATHS on the daemon. */
+  params: z.record(z.string(), z.string()).optional(),
 });
 
 export const ActionMsg = z.object({

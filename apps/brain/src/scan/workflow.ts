@@ -1,17 +1,23 @@
-// The scan as a Mastra workflow with fixed, deterministic step order. AI runs only inside
-// extract-advisories, classify and report. Heavy data stays in an in-memory ScanContext keyed by scanId;
+// The scan as a Mastra workflow with fixed, deterministic step order. Sentinel (AI) runs inside triage,
+// advisory analysis, investigation, remediation planning and report; code keeps the hard guarantees (matching,
+// distro verdict, guardrails, action validation). Heavy data stays in an in-memory ScanContext keyed by scanId;
 // steps pass only { scanId } so workflow snapshots stay small.
 import { createStep, createWorkflow } from "@mastra/core/workflows";
 import { z } from "zod";
-import type { Finding } from "@prohori/shared";
+import type { ActionType, Finding } from "@prohori/shared";
 import { audit, getFindingByKey, getSettings, listFindings, newId, nowIso, saveFinding, saveReport, getFinding } from "../db";
 import { sendReportEmail } from "../mailer";
-import { closeObsoleteProposals, hasEquivalentAction, proposeAction } from "../actions";
-import { classifyCve, extractAdvisory, writeReport, type Classification } from "./ai";
+import { closeObsoleteProposals, hasEquivalentAction, markRechecked, proposeAction } from "../actions";
+import { extractAdvisory, writeReport } from "./ai";
 import {
-  buildEvidence, evidenceHash, heldSet, expectedStatus, fallbackRationale, loadHosts, needsTextPath, osvMatch, priorityFor,
-  signalFilter, sourcesOf, type Candidate, type Classified, type ScanContext,
+  buildCandidates, buildEvidence, evidenceHash, heldSet, loadHosts, matchedCves, needsTextPath, osvMatch,
+  sourcesOf, type ScanContext,
 } from "./engine";
+import { triage } from "./triage";
+import { profileFor } from "./profile";
+import { investigateHost } from "./investigate";
+import { mitigationsFromPlan, planRemediation } from "./plan";
+import { mapPool } from "./util";
 
 const STATUS_LABEL: Record<string, string> = { exposed: "Exposed", vulnerable_not_exposed: "Vulnerable · Unreachable", not_affected: "Not Affected" };
 const PRIORITY_LABEL: Record<string, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low", info: "Informational" };
@@ -47,12 +53,21 @@ const osvMatchStep = createStep({
   },
 });
 
-const signalFilterStep = createStep({
-  id: "signal-filter",
-  description: "Keep only KEV / critical CVEs as candidates",
+const triageStep = createStep({
+  id: "triage",
+  description: "Sentinel triage of every raw-matched CVE (floor rule: KEV / distro critical → always), cached per CVE",
   inputSchema: IO, outputSchema: IO,
   execute: async ({ inputData }) => {
-    await signalFilter(ctxOf(inputData.scanId));
+    const ctx = ctxOf(inputData.scanId);
+    const matched = matchedCves(ctx);
+    const chosen = await triage(ctx, matched);
+    // keep re-evaluating CVEs that still have open findings, so they can resolve
+    const held = heldSet();
+    for (const f of listFindings()) {
+      if (f.status === "not_affected" || chosen.has(f.cveId) || held.has(f.cveId)) continue;
+      chosen.set(f.cveId, { sources: new Set(f.package ? [f.package.name] : []), decidedBy: f.investigation?.triage.decidedBy ?? "rule", reason: f.investigation?.triage.reason ?? "re-check of an open finding" });
+    }
+    await buildCandidates(ctx, chosen);
     return inputData;
   },
 });
@@ -75,9 +90,24 @@ const extractAdvisories = createStep({
   },
 });
 
+const advisoryAnalysis = createStep({
+  id: "advisory-analysis",
+  description: "Sentinel advisory analyst (fetch tool only, untrusted text) → ThreatProfile per candidate, cached per CVE",
+  inputSchema: IO, outputSchema: IO,
+  execute: async ({ inputData }) => {
+    const ctx = ctxOf(inputData.scanId);
+    await mapPool(ctx.candidates, 2, async (c) => {
+      const pkgs = ctx.hosts.flatMap((h) => c.sourcePkgs.map((s) => sourcesOf(h.inv).get(s)?.binaries.map((b) => b.name) ?? []).flat());
+      const hostsContext = `${c.sourcePkgs.join(", ")} (installed binaries: ${[...new Set(pkgs)].sort().join(", ") || "n/a"})`;
+      c.profile = await profileFor(`${ctx.sessionId}-profile-${c.cve}`, c, hostsContext, ctx.notes);
+    });
+    return inputData;
+  },
+});
+
 const crossHostEvidence = createStep({
   id: "cross-host-evidence",
-  description: "For each candidate, evaluate EVERY host with the source package: naive vs distro verdict, reachability, config",
+  description: "For each candidate, deterministic facts for EVERY host with the source package: distro verdict, listeners, firewall",
   inputSchema: IO, outputSchema: IO,
   execute: async ({ inputData }) => {
     const ctx = ctxOf(inputData.scanId);
@@ -86,72 +116,33 @@ const crossHostEvidence = createStep({
   },
 });
 
-function enforce(c: Candidate, e: ReturnType<typeof buildEvidence>[number], llm: Classification | undefined): Classified {
-  const { status, uncertain } = expectedStatus(e);
-  const notes: string[] = [];
-  let rationale = llm?.rationale?.trim() || fallbackRationale(e, status);
-  if (llm && llm.status !== status) {
-    notes.push(`_Sentinel override: the AI suggested **${llm.status}**, but the deterministic evidence gives **${status}** (distro verdict ${e.distroVerdict}, reachable ${e.reachable}); the evidence wins._`);
-  }
-  const needsConfirmation = e.needsConfirmation || uncertain;
-  if (needsConfirmation) notes.push("_Needs confirmation: part of this verdict rests on uncertain or AI-parsed evidence; Sentinel chose the more severe status._");
-  if (notes.length) rationale += "\n\n" + notes.join("\n\n");
-
-  let mitigations = (llm?.mitigations ?? []).filter(Boolean);
-  if (status !== "not_affected") {
-    const pkgs = e.binaries.join(" ");
-    const complete = e.distroFixed
-      ? `Upgrade ${e.sourcePackage} packages (${pkgs}) to ${e.distroFixed} or later — complete fix${/^CVE-2026-10961[89]$/.test(c.cve) ? " (upgrade is the only complete fix)" : ""}`
-      : `Upgrade ${e.sourcePackage} to a patched build when the distribution publishes one`;
-    if (!mitigations.length || !/upgrad/i.test(mitigations[0]!)) mitigations = [complete, ...mitigations.filter((m) => !/upgrad/i.test(m))];
-    else if (!/complete fix/i.test(mitigations[0]!)) {
-      mitigations[0] = `${mitigations[0]!.replace(/\.$/, "")} — complete fix${/^CVE-2026-10961[89]$/.test(c.cve) ? " (upgrade is the only complete fix)" : ""}`;
-    }
-    if (status === "exposed" && e.exposedPorts.length && !mitigations.some((m) => /firewall|close .*port/i.test(m))) {
-      mitigations.splice(1, 0, `Close ${e.exposedPorts.map((p) => `${p}/tcp`).join(", ")} in the host firewall — immediate containment, not a fix (the site on that port goes offline until patched)`);
-    }
-    mitigations = mitigations.map((m, i) => {
-      if (i === 0) return m;
-      if (/firewall|close .*port/i.test(m)) return /containment/i.test(m) ? m : `${m} (containment, not a fix)`;
-      return !/partial/i.test(m) && /php\.ini|memory_limit|post_max_size|max_input|multipart|nginx|disable|block/i.test(m) ? `${m} (partial)` : m;
-    });
-  } else if (!mitigations.length) {
-    mitigations = ["No action needed; keep receiving distro security updates."];
-  }
-  const confidence = needsConfirmation ? (llm?.confidence === "high" ? "medium" : llm?.confidence ?? "low") : llm?.confidence ?? "high";
-  return {
-    cve: c.cve,
-    evidence: e,
-    status,
-    priority: priorityFor(status, c.kev),
-    confidence,
-    rationale,
-    mitigations,
-    needsConfirmation,
-    evidenceHash: evidenceHash(e),
-  };
-}
-
-const classify = createStep({
-  id: "classify",
-  description: "AI classification (structured output) per CVE, then deterministic hard rules override the AI",
+const investigate = createStep({
+  id: "investigate",
+  description: "Sentinel investigator per (host, CVE) (read-only tools, cited steps) → code guardrails → remediation plan; unchanged pairs reuse the cached verdict",
   inputSchema: IO, outputSchema: IO,
   execute: async ({ inputData }) => {
     const ctx = ctxOf(inputData.scanId);
+    const work: { c: (typeof ctx.candidates)[number]; e: NonNullable<ReturnType<typeof ctx.evidence.get>>[number] }[] = [];
     for (const c of ctx.candidates) {
-      const ev = ctx.evidence.get(c.cve) ?? [];
-      if (!ev.length) continue;
-      // skip the LLM if every host's evidence is unchanged since the last classification
-      const unchanged = ev.every((e) => getFindingByKey(e.hostId, c.cve)?.evidenceHash === evidenceHash(e));
-      if (unchanged) continue;
-      let llm: Classification[] = [];
-      try {
-        llm = await classifyCve(ctx.sessionId, c, ev);
-      } catch (e) {
-        ctx.notes.push(`AI classification failed for ${c.cve}, using deterministic rationale: ${(e as Error).message}`);
+      for (const e of ctx.evidence.get(c.cve) ?? []) {
+        const prev = getFindingByKey(e.hostId, c.cve);
+        if (prev && prev.finding.investigation && prev.evidenceHash === evidenceHash(e, c.profile?.generatedAt ?? null)) continue; // cache hit
+        work.push({ c, e });
       }
-      for (const e of ev) ctx.classified.push(enforce(c, e, llm.find((l) => l.hostId === e.hostId)));
     }
+    await mapPool(work, 3, async ({ c, e }) => {
+      const t0 = Date.now();
+      const k = await investigateHost(`${ctx.sessionId}-${e.hostId}-${c.cve}`, c, e, c.profile!);
+      if (k.status !== "not_affected") {
+        const { plan, error } = await planRemediation(`${ctx.sessionId}-${e.hostId}-${c.cve}-plan`, c, k, c.profile!);
+        if (error) ctx.notes.push(`remediation planner failed for ${e.hostName}/${c.cve}, deterministic plan used: ${error}`);
+        k.investigation.remediationPlan = plan;
+        k.mitigations = mitigationsFromPlan(plan);
+      }
+      if (k.investigation.guardrail) ctx.notes.push(`guardrail ${e.hostName}/${c.cve}: ${k.investigation.guardrail}`);
+      ctx.notes.push(`investigated ${e.hostName}/${c.cve} in ${((Date.now() - t0) / 1000).toFixed(1)}s → ${k.status} (${k.investigation.steps.length} steps)`);
+      ctx.classified.push(k);
+    });
     return inputData;
   },
 });
@@ -196,15 +187,16 @@ const upsertFindings = createStep({
           versionCheck: e.installedVsFixed,
           distroVerdict: e.distroVerdict,
           naiveVerdict: e.naiveVerdict,
-          reachability: e.reachability,
+          reachability: k.reachability,
           listening: e.listening.join("; ") || "nothing on non-loopback addresses",
           firewall: e.firewall,
-          ...(e.exposedPorts.length ? { exposedPorts: e.exposedPorts.map((p) => `${p}/tcp`).join(", ") } : {}),
-          webSapi: e.webSapi.join(", ") || "none",
+          ...(k.exposedPorts.length ? { exposedPorts: k.exposedPorts.map((p) => `${p.port}/${p.protocol}`).join(", ") } : {}),
           kev: c.kev ? `yes (added ${c.kevInfo?.dateAdded})` : "no",
           cvss: c.cvss ?? "n/a",
-          ...(Object.keys(e.config).length ? { config: Object.entries(e.config).map(([key, v]) => `${key}=${v}`).join("; ") } : {}),
+          triage: `${c.triage.decidedBy}: ${c.triage.reason}`,
+          ...(k.investigation.guardrail ? { guardrail: k.investigation.guardrail } : {}),
         },
+        investigation: k.investigation,
         firstSeen: prev?.firstSeen ?? now,
         updatedAt: now,
         reportId: prev?.reportId ?? null,
@@ -249,6 +241,8 @@ const upsertFindings = createStep({
         audit("finding_changed", `${host.name} · ${c.cve}: ${statusLabel(prevStatus)} → Not Affected (package removed)`, { hostId: f.hostId, cveId: f.cveId });
       }
     }
+    // Verdicts are final now: clear "re-assessing" progress labels without waiting for the report/plan steps.
+    markRechecked(ctx.startedAt);
     return inputData;
   },
 });
@@ -267,6 +261,7 @@ const reportStep = createStep({
       const all = listFindings({ cveId: cve });
       return {
         candidate: ctx.candidates.find((c) => c.cve === cve)!,
+        profile: ctx.candidates.find((c) => c.cve === cve)?.profile ?? null,
         findings: all.filter((f) => f.status !== "not_affected"),
         alsoChecked: all.filter((f) => f.status === "not_affected"),
       };
@@ -321,14 +316,14 @@ const reportStep = createStep({
 
 const proposeFixes = createStep({
   id: "propose-fixes",
-  description: "Auto-propose (pending) upgrade actions for exposed findings with a distro fix",
+  description: "Auto-propose (pending) the plan's containment and fix for exposed findings",
   inputSchema: IO, outputSchema: IO,
   execute: async ({ inputData }) => {
     const ctx = ctxOf(inputData.scanId);
     // Pending proposals whose finding got resolved (e.g. after an upgrade) are closed automatically.
     closeObsoleteProposals((id) => getFinding(id)?.status ?? null);
     if (!getSettings().tier2Enabled) return inputData;
-    const propose = (f: Finding, type: "firewall_port" | "upgrade_packages", params: Record<string, unknown>, reason: string) => {
+    const propose = (f: Finding, type: ActionType, params: Record<string, unknown>, reason: string) => {
       // don't re-propose what an admin rejected or revised away (rolled_back may be re-proposed)
       if (hasEquivalentAction(f.hostId, type, params, ["pending", "approved", "running", "applied", "rejected", "superseded"])) return;
       try {
@@ -339,22 +334,19 @@ const proposeFixes = createStep({
       }
     };
     for (const f of listFindings({ status: "exposed" })) {
-      const host = ctx.hosts.find((h) => h.id === f.hostId);
-      if (!host) continue;
-      // (a) immediate containment: close the public port(s) the vulnerable service is reachable on
-      const ev = ctx.evidence.get(f.cveId)?.find((e) => e.hostId === f.hostId);
-      const ports = ev?.exposedPorts ?? (f.evidence.exposedPorts ?? "").split(",").map((s) => parseInt(s, 10)).filter((n) => n > 0);
-      for (const port of ports.filter((p) => p !== 22)) {
-        propose(f, "firewall_port", { port, protocol: "tcp", state: "closed" },
-          `Immediate containment for ${f.cveId} on ${f.evidence.hostName}: closing ${port}/tcp removes network exposure; the site on this port goes offline until patched. Not a fix — upgrade is still required.`);
+      if (!ctx.hosts.some((h) => h.id === f.hostId)) continue;
+      const plan = f.investigation?.remediationPlan ?? [];
+      // (a) the plan's immediate containment, if Sentinel found an allowed action for it (already validated in code)
+      const containment = plan.find((p) => p.kind === "containment" && p.actionType && p.params);
+      if (containment) {
+        propose(f, containment.actionType as ActionType, containment.params!,
+          `Immediate containment for ${f.cveId} on ${f.evidence.hostName}: ${containment.summary.replace(/\.$/, "")}. Trade-off: ${containment.tradeoff} Not a fix — the upgrade is still required.`);
       }
-      // (b) the complete fix: upgrade every installed binary of the vulnerable source package
-      if (f.package?.fixedVersion) {
-        const pkgs = (sourcesOf(host.inv).get(f.package.name)?.binaries ?? []).map((b) => b.name).sort().slice(0, 20);
-        if (pkgs.length) {
-          propose(f, "upgrade_packages", { packages: pkgs },
-            `${f.evidence.hostName} is exposed to ${f.cveId}${f.inKev ? " (CISA KEV)" : ""}: ${f.package.name} ${f.package.installedVersion} is vulnerable and reachable. Upgrading to ${f.package.fixedVersion} is the complete fix.`);
-        }
+      // (b) the complete fix (package list filled by code from the inventory)
+      const fix = plan.find((p) => p.kind === "fix" && p.actionType === "upgrade_packages" && p.params);
+      if (fix && f.package?.fixedVersion) {
+        propose(f, "upgrade_packages", fix.params!,
+          `${f.evidence.hostName} is exposed to ${f.cveId}${f.inKev ? " (CISA KEV)" : ""}: ${f.package.name} ${f.package.installedVersion} is vulnerable and reachable. Upgrading to ${f.package.fixedVersion} is the complete fix.`);
       }
     }
     return inputData;
@@ -363,16 +355,17 @@ const proposeFixes = createStep({
 
 export const scanWorkflow = createWorkflow({
   id: "prohori-scan",
-  description: "Inventory → OSV → signal filter → advisory parse → cross-host evidence → classify → findings → report → propose fixes",
+  description: "Inventory → OSV → Sentinel triage → advisory parse → threat profiles → host facts → investigations + guardrails + plans → findings → report → propose fixes",
   inputSchema: IO,
   outputSchema: IO,
 })
   .then(loadInventory)
   .then(osvMatchStep)
-  .then(signalFilterStep)
+  .then(triageStep)
   .then(extractAdvisories)
+  .then(advisoryAnalysis)
   .then(crossHostEvidence)
-  .then(classify)
+  .then(investigate)
   .then(upsertFindings)
   .then(reportStep)
   .then(proposeFixes)

@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type {
-  ActionRecord, AuditEvent, Finding, FindingStatus, HostSummary, InventorySnapshot, Report, Settings,
+  ActionRecord, AuditEvent, Finding, FindingStatus, HostSummary, InventorySnapshot, Report, Settings, ThreatProfile,
 } from "@prohori/shared";
 import { env } from "./env";
 
@@ -375,4 +375,48 @@ export function holdState(): { held: string[]; injected: string[] } {
 export function setHold(ids: string[], state: "held" | "injected") {
   const stmt = db.query("INSERT INTO demo_hold(cve_id, state) VALUES (?, ?) ON CONFLICT(cve_id) DO UPDATE SET state = excluded.state");
   for (const id of ids) stmt.run(id, state);
+}
+
+// ---------------- Sentinel caches (per CVE): triage decisions and threat profiles ----------------
+db.exec(`
+CREATE TABLE IF NOT EXISTS triage (
+  cve_id TEXT PRIMARY KEY,
+  decision TEXT NOT NULL,
+  decided_by TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS threat_profiles (
+  cve_id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+`);
+
+export interface TriageRow { cveId: string; decision: "investigate" | "ignore"; decidedBy: "rule" | "sentinel"; reason: string; createdAt: string }
+
+export function getTriage(cveId: string): TriageRow | null {
+  const r = db.query("SELECT * FROM triage WHERE cve_id = ?").get(cveId) as any;
+  return r ? { cveId: r.cve_id, decision: r.decision, decidedBy: r.decided_by, reason: r.reason, createdAt: r.created_at } : null;
+}
+export function saveTriage(t: Omit<TriageRow, "createdAt">) {
+  db.query(
+    `INSERT INTO triage(cve_id, decision, decided_by, reason, created_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(cve_id) DO UPDATE SET decision = excluded.decision, decided_by = excluded.decided_by, reason = excluded.reason, created_at = excluded.created_at`,
+  ).run(t.cveId, t.decision, t.decidedBy, t.reason, nowIso());
+}
+export function listTriage(): TriageRow[] {
+  return (db.query("SELECT * FROM triage ORDER BY cve_id").all() as any[]).map((r) => ({
+    cveId: r.cve_id, decision: r.decision, decidedBy: r.decided_by, reason: r.reason, createdAt: r.created_at,
+  }));
+}
+
+export function getProfile(cveId: string): ThreatProfile | null {
+  const r = db.query("SELECT data FROM threat_profiles WHERE cve_id = ?").get(cveId.toUpperCase()) as { data: string } | null;
+  return r ? JSON.parse(r.data) : null;
+}
+export function saveProfile(p: ThreatProfile) {
+  db.query(
+    "INSERT INTO threat_profiles(cve_id, data, created_at) VALUES (?, ?, ?) ON CONFLICT(cve_id) DO UPDATE SET data = excluded.data, created_at = excluded.created_at",
+  ).run(p.cveId.toUpperCase(), JSON.stringify(p), p.generatedAt);
 }

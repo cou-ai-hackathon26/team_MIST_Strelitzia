@@ -143,7 +143,7 @@ function connOrThrow(hostId: string): WS {
   return ws;
 }
 
-export function queryHost(hostId: string, name: QueryName): Promise<Record<string, unknown>[]> {
+export function queryHost(hostId: string, name: QueryName, params?: Record<string, string>): Promise<Record<string, unknown>[]> {
   const ws = connOrThrow(hostId);
   const requestId = crypto.randomUUID();
   return new Promise((resolve, reject) => {
@@ -152,7 +152,7 @@ export function queryHost(hostId: string, name: QueryName): Promise<Record<strin
       reject(new Error(`query ${name} on ${hostId} timed out after ${TIMING.queryTimeoutMs}ms`));
     }, TIMING.queryTimeoutMs);
     pendingQueries.set(requestId, { resolve, reject, timer });
-    send(ws, { id: crypto.randomUUID(), type: "query", requestId, name });
+    send(ws, { id: crypto.randomUUID(), type: "query", requestId, name, ...(params && Object.keys(params).length ? { params } : {}) });
   });
 }
 

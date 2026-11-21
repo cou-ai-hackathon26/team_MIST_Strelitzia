@@ -1,11 +1,16 @@
-# Prohori demo target. One image, three roles selected by build args.
+# Prohori demo target. One image, roles selected by build args.
 #   ROLE=web   -> nginx + php8.3-fpm (+cli)   (target-a / target-b)
 #   ROLE=batch -> php8.3-cli only, no listener (target-c)
-#   PHP_BUILD  -> exact Ubuntu build of every php8.3-* package
+#   ROLE=ssh   -> no PHP, no web server        (target-d)
+#   PHP_BUILD  -> exact Ubuntu build of every php8.3-* package (web/batch)
+#   SSH        -> none | client (openssh-client only) | server (openssh-server + sshd on :22)
+#   SSH_BUILD  -> exact Ubuntu build of the openssh-* packages; empty = latest available (noble-security)
 FROM ubuntu:24.04
 
 ARG ROLE=web
 ARG PHP_BUILD=8.3.6-0maysync1
+ARG SSH=none
+ARG SSH_BUILD=
 ARG OSQUERY_VERSION=5.24.1
 
 ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
@@ -20,17 +25,32 @@ RUN set -eux; \
     apt-get install -y /tmp/osquery.deb; rm -f /tmp/osquery.deb; \
     if [ "$ROLE" = "web" ]; then \
       PKGS="nginx php8.3-fpm=${PHP_BUILD} php8.3-cli=${PHP_BUILD} php8.3-common=${PHP_BUILD} php8.3-opcache=${PHP_BUILD} php8.3-readline=${PHP_BUILD}"; \
-    else \
+    elif [ "$ROLE" = "batch" ]; then \
       PKGS="php8.3-cli=${PHP_BUILD} php8.3-common=${PHP_BUILD} php8.3-opcache=${PHP_BUILD} php8.3-readline=${PHP_BUILD}"; \
+    else \
+      PKGS=""; \
     fi; \
-    apt-get install -y --no-install-recommends $PKGS; \
+    V=${SSH_BUILD:+=${SSH_BUILD}}; \
+    if [ "$SSH" = "server" ]; then \
+      PKGS="$PKGS openssh-server${V} openssh-client${V} openssh-sftp-server${V}"; \
+    elif [ "$SSH" = "client" ]; then \
+      PKGS="$PKGS openssh-client${V}"; \
+    fi; \
+    if [ -n "$PKGS" ]; then apt-get install -y --no-install-recommends $PKGS; fi; \
     apt-get purge -y unattended-upgrades 2>/dev/null || true; \
     rm -rf /var/cache/apt/archives/*.deb; \
-    mkdir -p /var/lib/prohori/actions /etc/nginx/prohori; \
-    dpkg -l 'php8.3-*' | awk '/^ii/{print $2, $3}'
+    mkdir -p /var/lib/prohori/actions; \
+    if [ "$ROLE" = "web" ]; then mkdir -p /etc/nginx/prohori; fi; \
+    dpkg -l 'php8.3-*' 'openssh-*' 2>/dev/null | awk '/^ii/{print $2, $3}'; \
+    if [ "$SSH" = "server" ]; then \
+      mkdir -p /run/sshd; rm -f /etc/ssh/ssh_host_*; \
+      systemctl disable ssh.socket 2>/dev/null || true; \
+    fi; \
+    echo "$SSH" > /etc/prohori-ssh
 
 # Show the version banner (the "naive scanner" view) and allow uploads.
 RUN set -eux; for ini in /etc/php/8.3/*/php.ini; do \
+      [ -f "$ini" ] || continue; \
       sed -i -E 's/^;?\s*expose_php\s*=.*/expose_php = On/' "$ini"; \
     done
 
@@ -43,7 +63,7 @@ RUN set -eux; chmod +x /usr/local/bin/entrypoint.sh; \
       cp /opt/prohori-site/nginx-bank.conf /etc/nginx/sites-available/bank; \
       rm -f /etc/nginx/sites-enabled/default; ln -s /etc/nginx/sites-available/bank /etc/nginx/sites-enabled/bank; \
       nginx -t; \
-    else \
+    elif [ "$ROLE" = "batch" ]; then \
       mkdir -p /opt/batch; cp /opt/prohori-site/batch/reconcile.php /opt/batch/; \
     fi; \
     echo "$ROLE" > /etc/prohori-role

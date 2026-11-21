@@ -1,8 +1,9 @@
-// Fake prohori-daemons for brain development: web-a, web-b, batch-c with realistic inventories.
-// Usage: bun scripts/fake-daemons.ts [ws://127.0.0.1:4000/agent]
+// Fake prohori-daemons for brain development: web-a, web-b, batch-c, ssh-d with realistic inventories.
+// Usage: bun scripts/fake-daemons.ts [ws://127.0.0.1:4000/agent] [--only ssh-d,batch-c]
 import { ActionParams, BrainToDaemon, PROTOCOL_VERSION, type ActionType, type InventorySnapshot } from "@prohori/shared";
 
-const URL_ = process.argv[2] ?? process.env.BRAIN_WS ?? `ws://127.0.0.1:${process.env.BRAIN_PORT ?? 4000}/agent`;
+const ONLY = (() => { const i = process.argv.indexOf("--only"); return i > 0 ? new Set(process.argv[i + 1]!.split(",")) : null; })();
+const URL_ = (process.argv[2] && !process.argv[2].startsWith("--") ? process.argv[2] : undefined) ?? process.env.BRAIN_WS ?? `ws://127.0.0.1:${process.env.BRAIN_PORT ?? 4000}/agent`;
 const VULN = "8.3.6-0maysync1";
 const PATCHED = "8.3.6-0ubuntu0.24.04.13";
 
@@ -14,6 +15,12 @@ const base = [
   { name: "libc6", version: "2.39-0ubuntu8.6", source: "glibc", arch: "amd64" },
   { name: "osquery", version: "5.19.0-1.linux", source: "osquery", arch: "amd64" },
 ];
+const SSH_VULN = "1:9.6p1-3ubuntu13";
+const SSH_PATCHED = "1:9.6p1-3ubuntu13.20";
+const ssh = (v: string, names: string[]) => names.map((n) => ({ name: n, version: v, source: "openssh", arch: "amd64" }));
+const sshdListener = { port: 22, protocol: "tcp" as const, address: "0.0.0.0", process: "sshd", pid: 22 };
+const sshdProc = { name: "sshd", path: "/usr/sbin/sshd", pid: 22 };
+const sshdConfig: Record<string, string> = { "/etc/ssh/sshd_config:PermitRootLogin": "prohibit-password", "/etc/ssh/sshd_config:PasswordAuthentication": "yes", "/etc/ssh/sshd_config:UsePAM": "yes" };
 const php = (v: string, names: string[]) => names.map((n) => ({ name: n, version: v, source: "php8.3", arch: "amd64" }));
 const phpConfig = (sapis: string[]) =>
   Object.fromEntries(sapis.flatMap((s) => [
@@ -48,11 +55,28 @@ function webHost(hostname: string, phpVersion: string): InventorySnapshot {
 
 const hosts: { id: string; token: string; inv: InventorySnapshot }[] = [
   { id: "web-a", token: "dev-token-a", inv: webHost("bank-web-01", VULN) },
-  { id: "web-b", token: "dev-token-b", inv: webHost("bank-web-02", PATCHED) },
+  { id: "web-b", token: "dev-token-b", inv: (() => {
+    const inv = webHost("bank-web-02", PATCHED);
+    inv.packages.push(...ssh(SSH_PATCHED, ["openssh-server", "openssh-client", "openssh-sftp-server"]));
+    inv.listeningPorts.push(sshdListener);
+    inv.processes.push(sshdProc);
+    Object.assign(inv.config, sshdConfig);
+    return inv;
+  })() },
+  {
+    id: "ssh-d", token: "dev-token-d", inv: {
+      collectedAt: new Date().toISOString(), hostname: "bank-ssh-01", os,
+      packages: [...base.filter((p) => p.source !== "nginx"), ...ssh(SSH_VULN, ["openssh-server", "openssh-client", "openssh-sftp-server"])],
+      listeningPorts: [sshdListener],
+      processes: [sshdProc, { name: "osqueryd", path: "/opt/osquery/bin/osqueryd", pid: 50 }],
+      firewall: { available: true, closedPorts: [] },
+      config: { ...sshdConfig },
+    },
+  },
   {
     id: "batch-c", token: "dev-token-c", inv: {
       collectedAt: new Date().toISOString(), hostname: "bank-batch-01", os,
-      packages: [...base.filter((p) => p.source !== "nginx"), ...php(VULN, ["php8.3-cli", "php8.3-common", "php8.3-readline"])],
+      packages: [...base.filter((p) => p.source !== "nginx"), ...php(VULN, ["php8.3-cli", "php8.3-common", "php8.3-readline"]), ...ssh(SSH_VULN, ["openssh-client"])],
       listeningPorts: [],
       processes: [{ name: "cron", path: "/usr/sbin/cron", pid: 30 }, { name: "osqueryd", path: "/opt/osquery/bin/osqueryd", pid: 50 }],
       firewall: { available: true, closedPorts: [] },
@@ -61,8 +85,13 @@ const hosts: { id: string; token: string; inv: InventorySnapshot }[] = [
   },
 ];
 
-function rowsFor(inv: InventorySnapshot, name: string): Record<string, unknown>[] {
+function rowsFor(inv: InventorySnapshot, name: string, params: Record<string, string> = {}): Record<string, unknown>[] {
   switch (name) {
+    case "config_file": {
+      const path = params.path ?? "";
+      return Object.entries(inv.config).filter(([k]) => k.startsWith(path + ":")).map(([k, value]) => ({ key: k.slice(path.length + 1), value, file: path }));
+    }
+    case "services": return [...new Set(inv.processes.map((p) => p.name))].filter((n) => !/osquery|prohori/.test(n)).map((name) => ({ name: name === "sshd" ? "ssh" : name, state: "running" }));
     case "packages": return inv.packages as any;
     case "os_version": return [inv.os as any];
     case "listening_ports": return inv.listeningPorts as any;
@@ -98,7 +127,7 @@ function connect(h: (typeof hosts)[number]) {
         console.error(`[${h.id}] rejected: ${m.reason}`);
         break;
       case "query":
-        send({ type: "query_result", requestId: m.requestId, ok: true, rows: rowsFor(h.inv, m.name) });
+        send({ type: "query_result", requestId: m.requestId, ok: true, rows: rowsFor(h.inv, m.name, m.params ?? {}) });
         break;
       case "refresh":
         sendInv("periodic");
@@ -114,11 +143,12 @@ function connect(h: (typeof hosts)[number]) {
         if (type === "upgrade_packages") {
           const names = (p.data as { packages: string[] }).packages;
           const prev = new Map(h.inv.packages.filter((x) => names.includes(x.name)).map((x) => [x.name, x.version]));
-          for (const x of h.inv.packages) if (names.includes(x.name) && x.source === "php8.3") x.version = PATCHED;
-          diff = [...prev].map(([n, v]) => `${n}: ${v} -> ${PATCHED}`).join("\n");
+          const target = (src: string) => (src === "openssh" ? SSH_PATCHED : PATCHED);
+          for (const x of h.inv.packages) if (names.includes(x.name)) x.version = target(x.source);
+          diff = [...prev].map(([n, v]) => `${n}: ${v} -> patched`).join("\n");
           undo.set(m.actionId, () => {
             for (const x of h.inv.packages) if (prev.has(x.name)) x.version = prev.get(x.name)!;
-            return [...prev].map(([n, v]) => `${n}: ${PATCHED} -> ${v}`).join("\n");
+            return [...prev].map(([n, v]) => `${n}: patched -> ${v}`).join("\n");
           });
         } else if (type === "firewall_port") {
           const { port, protocol, state } = p.data as { port: number; protocol: "tcp" | "udp"; state: "closed" | "open" };
@@ -162,5 +192,5 @@ function connect(h: (typeof hosts)[number]) {
   ws.onerror = () => {};
 }
 
-for (const h of hosts) connect(h);
+for (const h of hosts) if (!ONLY || ONLY.has(h.id)) connect(h);
 console.log(`fake daemons → ${URL_}`);

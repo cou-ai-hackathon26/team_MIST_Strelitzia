@@ -82,3 +82,36 @@ Brain reachability MUST honour it: a service whose port is closed by a Prohori r
 
 ## Done = demo-able
 `docker compose up` targets → `bun run brain` → `bun run web` → login → Overview shows 3 hosts online with inventory → baseline scan has no PHP2Shell (held) → click "Inject PHP2Shell" (demo panel) → within one scan interval: A exposed/critical, B not_affected, C vulnerable_not_exposed, each with rationale + naive-vs-actual contrast → report email visible in MailHog → chat "why is bank-web-02 safe?" calls tools live → (Tier 2) propose fix for A → Approve → daemon upgrades php8.3 → rescan → A not_affected → rollback works.
+
+---
+
+# Addendum: Generalized Sentinel (no per-CVE knowledge in code or prompts)
+
+Goal: Sentinel must handle an **unseen CVE** with no CVE- or product-specific text anywhere in prompts or scan code. The AI does the judgement work; code keeps hard guarantees. Proof: a second, held-out scenario (regreSSHion, CVE-2024-6387, OpenSSH) that no prompt mentions, plus an evaluation script and a prompt audit.
+
+## Pipeline (per scan)
+1. **Match** (code, unchanged): OSV distro-ecosystem matching on source packages → raw matches; distro verdict (patched backport or vulnerable) per host.
+2. **Triage** (Sentinel, new): every raw-matched CVE not yet triaged is classified *investigate / ignore* with a one-line reason (batched, cached per CVE). Floor rule in code: on CISA KEV or distro priority `critical` → always investigate (`decidedBy: "rule"`). Embargoed (held) CVEs are excluded before triage.
+3. **Advisory analysis** (Sentinel, new, cached per CVE in DB): reads the OSV record, distro record, KEV entry and up to ~4 of the record's own reference URLs (fetched read-only, HTML → text, truncated; untrusted text; no action tools) → `ThreatProfile` (shared/domain.ts): component, attack vector, *checkable* preconditions, complete fix, partial mitigations with trade-offs.
+4. **Investigation** (Sentinel, new, per host with the source package): a bounded tool loop (read-only tools: host facts, named queries incl. `config_file`/`services`, firewall) tests each precondition and returns results with **citations** to its tool steps (`S1`, `S2`…). Captured as `Finding.investigation`.
+5. **Verdict** (code guardrails): distro patched → `not_affected` (hard rule). Vulnerable build → Sentinel's reachability decides `exposed` vs `vulnerable_not_exposed` **only if** backed by cited steps; uncited, unknown or contradicted → `exposed` + `needsConfirmation` (more severe). Firewall containment claims are checked against `inventory.firewall.closedPorts`. Any override is recorded in `investigation.guardrail`. Priority: exposed+KEV → critical, exposed → high, vulnerable_not_exposed → medium, not_affected → info.
+6. **Remediation plan** (Sentinel, new): from the profile + host constraints + the allow-list (`ACTION_DESCRIPTIONS`, `ActionParams`, `CONFIG_DIRECTIVE_ALLOWLIST`; firewall_port never port 22) → ranked plan (containment / fix / partial, with trade-offs), stored in `investigation.remediationPlan`. For exposed findings, code auto-proposes the plan's containment (if any) and fix as pending actions after zod validation (`upgrade_packages` package list is filled by code from the inventory).
+7. **Report + chat**: generic prompts that use the profile. No CVE ids, scenario names or CVE-specific mitigations in any prompt.
+
+## Lab scenarios (env `DEMO_SCENARIOS`, all embargoed at start)
+| Scenario | Host | Package build | Expected |
+|---|---|---|---|
+| PHP2Shell (CVE-2026-109618/9) | bank-web-01 (web-a) | php8.3 `8.3.6-0maysync1`, php-fpm behind nginx :80 | exposed (critical, KEV) |
+| | bank-web-02 (web-b) | php8.3 `8.3.6-0ubuntu0.24.04.13` | not_affected |
+| | bank-batch-01 (batch-c) | php8.3 `8.3.6-0maysync1`, CLI only | vulnerable_not_exposed |
+| regreSSHion (CVE-2024-6387, held-out) | bank-ssh-01 (ssh-d, new) | openssh `1:9.6p1-3ubuntu13`, sshd on 0.0.0.0:22 | exposed (high; not KEV; Ubuntu priority "high" → only Sentinel's triage includes it) |
+| | bank-web-02 (web-b) | openssh-server latest (patched, ≥ `1:9.6p1-3ubuntu13.3`), sshd running | not_affected |
+| | bank-batch-01 (batch-c) | openssh-client `1:9.6p1-3ubuntu13`, no sshd | vulnerable_not_exposed |
+
+regreSSHion specifics Sentinel must discover itself (never put them in prompts): port 22 cannot be firewalled by Prohori → containment must come from elsewhere; `LoginGraceTime 0` is a partial mitigation with a denial-of-service trade-off; upgrade is the complete fix.
+
+## New surface
+- Query `config_file {path}` (path must match `CONFIG_PATHS`, symlinks resolved and re-checked) → `{key, value, file}[]`; query `services` → `{name, state}[]`.
+- Action `set_config_directive {file, directive, value}` enforced against `CONFIG_DIRECTIVE_ALLOWLIST` on the daemon; `restart_service` accepts `ssh`.
+- `GET /api/profiles/:cveId`; `POST /api/demo/inject {scenarioId?}`, `POST /api/demo/reset {scenarioId?}`; `StatusResponse.demo.scenarios`.
+- `scripts/eval.ts` (`bun run eval`): resets, replays each scenario, waits, scores verdicts vs expected (and checks investigation + plan exist). `scripts/prompt-audit.ts` (`bun run prompt-audit`): fails if prompt/scan source contains CVE ids or scenario/product-specific strings.

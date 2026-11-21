@@ -5,8 +5,8 @@
 
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import type {
-  ActionRecord, AuditEvent, EnrollResponse, Finding, FindingStatus, HostDetailResponse, HostSummary,
-  InventorySnapshot, Report, ScanState, Settings, StatusResponse, WildCve,
+  ActionRecord, AuditEvent, DemoScenario, EnrollResponse, Finding, FindingStatus, HostDetailResponse, HostSummary,
+  Investigation, InventorySnapshot, Report, ScanState, Settings, StatusResponse, ThreatProfile, WildCve,
 } from "@prohori/shared";
 
 const PORT = Number(process.env.MOCK_BRAIN_PORT ?? 4100);
@@ -17,10 +17,17 @@ let seq = 0;
 const id = (p: string) => `${p}-${(++seq).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 const PHP2SHELL = ["CVE-2026-109618", "CVE-2026-109619"];
+const REGRESSHION = "CVE-2024-6387";
+const SCENARIOS: Omit<DemoScenario, "state">[] = [
+  { id: "php2shell", title: "PHP2Shell", cveIds: PHP2SHELL },
+  { id: "regresshion", title: "regreSSHion", cveIds: [REGRESSHION] },
+];
 
 // ---------------- state ----------------
 const settings: Settings = { reportEmails: ["it-team@bank.example"], scanIntervalSec: 45, wildRefreshSec: 900, tier2Enabled: true };
-const demo = { replayHeld: [] as string[], injected: [...PHP2SHELL] };
+const demo = { replayHeld: [] as string[], injected: [...PHP2SHELL, REGRESSHION] };
+const scenarioStates = (): DemoScenario[] =>
+  SCENARIOS.map((sc) => ({ ...sc, state: sc.cveIds.every((c) => demo.injected.includes(c)) ? "released" : "embargoed" }));
 const scan: ScanState = {
   running: false,
   lastStartedAt: iso(-20),
@@ -29,8 +36,12 @@ const scan: ScanState = {
   lastResult: { newFindings: 6, changedFindings: 0, reportsSent: 1 },
 };
 
-function pkgs(phpVer: string, sapis: string[], web: boolean): InventorySnapshot["packages"] {
+const SSH_VULN = "1:9.6p1-3ubuntu13";
+const SSH_FIXED = "1:9.6p1-3ubuntu13.3";
+function pkgs(phpVer: string, sapis: string[], web: boolean, ssh: { ver: string; server: boolean }): InventorySnapshot["packages"] {
   const base = [
+    { name: "openssh-client", version: ssh.ver, source: "openssh", arch: "amd64" },
+    ...(ssh.server ? [{ name: "openssh-server", version: ssh.ver, source: "openssh", arch: "amd64" }] : []),
     { name: "openssl", version: "3.0.13-0ubuntu3.6", source: "openssl", arch: "amd64" },
     { name: "libc6", version: "2.39-0ubuntu8.6", source: "glibc", arch: "amd64" },
     { name: "bash", version: "5.2.21-2ubuntu4", source: "bash", arch: "amd64" },
@@ -43,16 +54,17 @@ function pkgs(phpVer: string, sapis: string[], web: boolean): InventorySnapshot[
   return base;
 }
 
-function inventory(hostname: string, phpVer: string, web: boolean): InventorySnapshot {
+function inventory(hostname: string, phpVer: string, web: boolean, ssh: { ver: string; server: boolean }): InventorySnapshot {
   return {
     collectedAt: iso(-40),
     hostname,
     os: { name: "Ubuntu", version: "24.04.3 LTS (Noble Numbat)", versionId: "24.04", codename: "noble", platform: "ubuntu" },
-    packages: pkgs(phpVer, web ? ["fpm"] : [], web),
+    packages: pkgs(phpVer, web ? ["fpm"] : [], web, ssh),
     listeningPorts: web
       ? [
           { port: 80, protocol: "tcp", address: "0.0.0.0", process: "nginx", pid: 101 },
           { port: 9000, protocol: "tcp", address: "127.0.0.1", process: "php-fpm8.3", pid: 120 },
+          ...(ssh.server ? [{ port: 22, protocol: "tcp" as const, address: "10.20.0.12", process: "sshd", pid: 88 }] : []),
         ]
       : [],
     processes: web
@@ -75,11 +87,35 @@ const hosts: HostSummary[] = [
   { id: "web-a", name: "bank-web-01", status: "online", lastSeen: iso(-4), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", tier2Enabled: true, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 56 },
   { id: "web-b", name: "bank-web-02", status: "online", lastSeen: iso(-7), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", tier2Enabled: true, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 1 },
   { id: "batch-c", name: "bank-batch-01", status: "online", lastSeen: iso(-2), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", tier2Enabled: false, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 56 },
+  { id: "ssh-d", name: "bank-ssh-01", status: "online", lastSeen: iso(-3), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", tier2Enabled: true, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 31 },
 ];
 const inventories: Record<string, InventorySnapshot> = {
-  "web-a": inventory("bank-web-01", "8.3.6-0maysync1", true),
-  "web-b": inventory("bank-web-02", "8.3.6-0ubuntu0.24.04.13", true),
-  "batch-c": inventory("bank-batch-01", "8.3.6-0maysync1", false),
+  "web-a": inventory("bank-web-01", "8.3.6-0maysync1", true, { ver: SSH_FIXED, server: false }),
+  "web-b": inventory("bank-web-02", "8.3.6-0ubuntu0.24.04.13", true, { ver: SSH_FIXED, server: true }),
+  "batch-c": inventory("bank-batch-01", "8.3.6-0maysync1", false, { ver: SSH_VULN, server: false }),
+  // Jump host without PHP: only OpenSSH, sshd on 0.0.0.0:22.
+  "ssh-d": {
+    collectedAt: iso(-35),
+    hostname: "bank-ssh-01",
+    os: { name: "Ubuntu", version: "24.04.3 LTS (Noble Numbat)", versionId: "24.04", codename: "noble", platform: "ubuntu" },
+    packages: [
+      { name: "openssh-server", version: SSH_VULN, source: "openssh", arch: "amd64" },
+      { name: "openssh-client", version: SSH_VULN, source: "openssh", arch: "amd64" },
+      { name: "openssh-sftp-server", version: SSH_VULN, source: "openssh", arch: "amd64" },
+      { name: "openssl", version: "3.0.13-0ubuntu3.6", source: "openssl", arch: "amd64" },
+      { name: "libc6", version: "2.39-0ubuntu8.6", source: "glibc", arch: "amd64" },
+      { name: "osquery", version: "5.14.1-1.linux", source: "osquery", arch: "amd64" },
+    ],
+    listeningPorts: [{ port: 22, protocol: "tcp", address: "0.0.0.0", process: "sshd", pid: 77 }],
+    processes: [{ name: "sshd", path: "/usr/sbin/sshd", pid: 77 }, { name: "cron", path: "/usr/sbin/cron", pid: 50 }],
+    firewall: { available: true, closedPorts: [] },
+    config: {
+      "/etc/ssh/sshd_config:LoginGraceTime": "120",
+      "/etc/ssh/sshd_config:MaxStartups": "10:30:100",
+      "/etc/ssh/sshd_config:PermitRootLogin": "prohibit-password",
+      "/etc/ssh/sshd_config:PasswordAuthentication": "no",
+    },
+  },
 };
 
 const RATIONALE: Record<FindingStatus, string> = {
@@ -143,6 +179,160 @@ function mkFinding(hostId: string, cve: string, status: FindingStatus, installed
     firstSeen: iso(-300),
     updatedAt: iso(-12),
     reportId,
+    investigation: exposed && cve === "CVE-2026-109618" ? PHP_EXPOSED_INVESTIGATION : null,
+  };
+}
+
+
+// ---------------- Sentinel analysis fixtures (threat profiles + investigations) ----------------
+const PROFILES: Record<string, ThreatProfile> = {
+  [REGRESSHION]: {
+    cveId: REGRESSHION,
+    summary: "A signal-handler race condition in the OpenSSH server (sshd) lets an unauthenticated remote attacker who keeps connections open until LoginGraceTime expires run code as root. Exploitation needs many attempts but has been demonstrated on glibc-based Linux.",
+    component: "OpenSSH server daemon (sshd)",
+    attackVector: "network",
+    preconditions: [
+      { id: "P1", text: "A vulnerable openssh-server build is installed", howToCheck: "Compare the installed openssh-server build with the distro fixed build" },
+      { id: "P2", text: "sshd is running", howToCheck: "List running services / processes" },
+      { id: "P3", text: "sshd accepts connections from untrusted networks", howToCheck: "Listening sockets and firewall rules for the SSH port" },
+      { id: "P4", text: "LoginGraceTime is non-zero", howToCheck: "Read LoginGraceTime from /etc/ssh/sshd_config" },
+    ],
+    completeFix: "Upgrade the openssh source package to the distro fixed build (1:9.6p1-3ubuntu13.3 or later) and restart sshd.",
+    partialMitigations: [
+      { text: "Set LoginGraceTime 0 in sshd_config and restart sshd.", tradeoff: "Removes the race window but lets anyone exhaust MaxStartups connection slots, a denial-of-service risk for legitimate SSH logins." },
+      { text: "Restrict SSH to a management network or VPN.", tradeoff: "Requires network changes outside the asset; the SSH port cannot be closed by Prohori without cutting administrative access." },
+    ],
+    exploitedInWild: false,
+    sources: [
+      "https://ubuntu.com/security/CVE-2024-6387",
+      "https://www.qualys.com/2024/07/01/cve-2024-6387/regresshion.txt",
+      "https://www.openssh.com/txt/release-9.8",
+      "OSV:UBUNTU-CVE-2024-6387",
+    ],
+    generatedAt: iso(-200),
+  },
+  "CVE-2026-109618": {
+    cveId: "CVE-2026-109618",
+    summary: "An out-of-memory condition during multipart/form-data parsing corrupts PHP's heap; a remote attacker who can POST to any PHP script can turn this into code execution.",
+    component: "PHP web runtime (FPM / Apache module) multipart parser",
+    attackVector: "network",
+    preconditions: [
+      { id: "P1", text: "A vulnerable php8.3 build is installed", howToCheck: "Compare installed php8.3 build to the distro fixed build" },
+      { id: "P2", text: "A web SAPI (FPM/CGI/Apache module) is installed and running", howToCheck: "Packages and running services" },
+      { id: "P3", text: "PHP scripts are reachable over the network", howToCheck: "Listening sockets of the web server and firewall rules" },
+    ],
+    completeFix: "Upgrade the php8.3 source package to 8.3.6-0ubuntu0.24.04.13 or later.",
+    partialMitigations: [
+      { text: "Reject multipart/form-data at the web server.", tradeoff: "Breaks file uploads." },
+      { text: "Lower post_max_size and max_input_nesting_level.", tradeoff: "May break large forms; does not remove the bug." },
+    ],
+    exploitedInWild: true,
+    sources: ["https://www.cisa.gov/known-exploited-vulnerabilities-catalog", "https://ubuntu.com/security/CVE-2026-109618", "OSV:UBUNTU-CVE-2026-109618"],
+    generatedAt: iso(-560),
+  },
+  // CVE-2026-109619 intentionally has no profile: the dashboard must handle the 404.
+};
+
+const SSH_EXPOSED_INVESTIGATION: Investigation = {
+  triage: { decidedBy: "sentinel", reason: "Remote unauthenticated code execution in sshd, and openssh-server is installed on this inventory. Not on CISA KEV; distro priority high, so the floor rule did not apply." },
+  profile: { summary: PROFILES[REGRESSHION]!.summary, component: PROFILES[REGRESSHION]!.component, attackVector: "network", completeFix: PROFILES[REGRESSHION]!.completeFix },
+  preconditions: [
+    { id: "P1", text: "A vulnerable openssh-server build is installed", result: "met", evidence: ["S1"], note: "openssh-server 1:9.6p1-3ubuntu13 is older than the fixed build 1:9.6p1-3ubuntu13.3." },
+    { id: "P2", text: "sshd is running", result: "met", evidence: ["S2"], note: "Service ssh is active (sshd, pid 77)." },
+    { id: "P3", text: "sshd accepts connections from untrusted networks", result: "met", evidence: ["S3", "S4"], note: "sshd listens on 0.0.0.0:22 and no Prohori firewall rule restricts it." },
+    { id: "P4", text: "LoginGraceTime is non-zero", result: "met", evidence: ["S5"], note: "LoginGraceTime is 120 (explicitly set)." },
+    { id: "P5", text: "glibc-based userland (exploit reliability)", result: "unknown", evidence: [], note: "Not checkable with the read-only tools; does not change the verdict." },
+  ],
+  steps: [
+    { ref: "S1", tool: "runHostQuery", input: { hostId: "ssh-d", query: "packages", filter: "openssh" }, summary: "openssh-server, openssh-client and openssh-sftp-server at 1:9.6p1-3ubuntu13 (noble release pocket)." },
+    { ref: "S2", tool: "runHostQuery", input: { hostId: "ssh-d", query: "services" }, summary: "ssh: active (running); cron: active." },
+    { ref: "S3", tool: "runHostQuery", input: { hostId: "ssh-d", query: "listening_ports" }, summary: "tcp 0.0.0.0:22 sshd (pid 77). No other listeners." },
+    { ref: "S4", tool: "getFirewall", input: { hostId: "ssh-d" }, summary: "Firewall available; no Prohori-managed rules; 22/tcp open." },
+    { ref: "S5", tool: "readConfigFile", input: { hostId: "ssh-d", path: "/etc/ssh/sshd_config" }, summary: "LoginGraceTime 120; MaxStartups 10:30:100; PermitRootLogin prohibit-password; PasswordAuthentication no." },
+  ],
+  conclusion: "All checkable preconditions are met: a vulnerable sshd is running, reachable on 0.0.0.0:22, with a non-zero LoginGraceTime. bank-ssh-01 is exposed. Closing port 22 would cut administrative access, so containment must come from configuration rather than the firewall.",
+  guardrail: "Port 22 is excluded from firewall containment, so the plan's firewall step was dropped and LoginGraceTime 0 was proposed as the interim measure. Precondition P5 is unknown but not load-bearing; verdict kept at Exposed.",
+  remediationPlan: [
+    { kind: "fix", summary: "Upgrade openssh-server, openssh-client and openssh-sftp-server to 1:9.6p1-3ubuntu13.3", tradeoff: "sshd restarts; established sessions survive, new logins pause for a few seconds.", actionType: "upgrade_packages", params: { packages: ["openssh-server", "openssh-client", "openssh-sftp-server"] } },
+    { kind: "partial", summary: "Set LoginGraceTime 0 in sshd_config until the upgrade is applied", tradeoff: "Removes the race window, but unauthenticated clients can hold all MaxStartups slots and block legitimate SSH logins (denial of service).", actionType: "set_config_directive", params: { file: "/etc/ssh/sshd_config", directive: "LoginGraceTime", value: "0" } },
+    { kind: "partial", summary: "Restrict SSH to the management VPN at the network edge", tradeoff: "Outside Prohori's allow-list; needs a network change by the infrastructure team.", actionType: null, params: null },
+  ],
+};
+
+const SSH_VNE_INVESTIGATION: Investigation = {
+  triage: SSH_EXPOSED_INVESTIGATION.triage,
+  profile: SSH_EXPOSED_INVESTIGATION.profile,
+  preconditions: [
+    { id: "P1", text: "A vulnerable openssh-server build is installed", result: "not_met", evidence: ["S1"], note: "Only openssh-client 1:9.6p1-3ubuntu13 is installed; the server package is absent." },
+    { id: "P2", text: "sshd is running", result: "not_met", evidence: ["S2"], note: "No ssh service." },
+    { id: "P3", text: "sshd accepts connections from untrusted networks", result: "not_met", evidence: ["S3"], note: "No listening sockets." },
+  ],
+  steps: [
+    { ref: "S1", tool: "runHostQuery", input: { hostId: "batch-c", query: "packages", filter: "openssh" }, summary: "openssh-client 1:9.6p1-3ubuntu13. No openssh-server." },
+    { ref: "S2", tool: "runHostQuery", input: { hostId: "batch-c", query: "services" }, summary: "cron: active. No ssh service." },
+    { ref: "S3", tool: "runHostQuery", input: { hostId: "batch-c", query: "listening_ports" }, summary: "No listening sockets." },
+  ],
+  conclusion: "The vulnerable source package is present only as the SSH client; the flaw is in the server daemon, which is not installed. Vulnerable but not reachable.",
+  guardrail: null,
+  remediationPlan: [
+    { kind: "fix", summary: "Upgrade openssh-client in the next maintenance window", tradeoff: "None expected.", actionType: "upgrade_packages", params: { packages: ["openssh-client"] } },
+  ],
+};
+
+const PHP_EXPOSED_INVESTIGATION: Investigation = {
+  triage: { decidedBy: "rule", reason: "Listed on CISA KEV: always investigated (floor rule)." },
+  profile: { summary: PROFILES["CVE-2026-109618"]!.summary, component: PROFILES["CVE-2026-109618"]!.component, attackVector: "network", completeFix: PROFILES["CVE-2026-109618"]!.completeFix },
+  preconditions: [
+    { id: "P1", text: "A vulnerable php8.3 build is installed", result: "met", evidence: ["S1"], note: "php8.3-fpm 8.3.6-0maysync1 is older than 8.3.6-0ubuntu0.24.04.13." },
+    { id: "P2", text: "A web SAPI is installed and running", result: "met", evidence: ["S1", "S2"], note: "php8.3-fpm is installed and php-fpm8.3 is running." },
+    { id: "P3", text: "PHP scripts are reachable over the network", result: "met", evidence: ["S3", "S7"], note: "nginx on 0.0.0.0:80 forwards .php to php-fpm (cites a step that was not recorded)." },
+  ],
+  steps: [
+    { ref: "S1", tool: "runHostQuery", input: { hostId: "web-a", query: "packages", filter: "php" }, summary: "php8.3-common/-cli/-fpm 8.3.6-0maysync1." },
+    { ref: "S2", tool: "runHostQuery", input: { hostId: "web-a", query: "services" }, summary: "nginx: active; php8.3-fpm: active." },
+    { ref: "S3", tool: "runHostQuery", input: { hostId: "web-a", query: "listening_ports" }, summary: "tcp 0.0.0.0:80 nginx; tcp 127.0.0.1:9000 php-fpm8.3." },
+  ],
+  conclusion: "Vulnerable FPM build behind nginx on a public port; exposed.",
+  guardrail: null,
+  remediationPlan: [
+    { kind: "containment", summary: "Close 80/tcp until the upgrade is applied", tradeoff: "The website is offline for all clients.", actionType: "firewall_port", params: { port: 80, protocol: "tcp", state: "closed" } },
+    { kind: "fix", summary: "Upgrade php8.3 packages to 8.3.6-0ubuntu0.24.04.13", tradeoff: "php-fpm restarts briefly.", actionType: "upgrade_packages", params: { packages: ["php8.3-fpm", "php8.3-cli", "php8.3-common"] } },
+    { kind: "partial", summary: "Lower post_max_size in the FPM php.ini", tradeoff: "Large uploads fail; does not remove the bug.", actionType: "set_config_directive", params: { file: "/etc/php/8.3/fpm/php.ini", directive: "post_max_size", value: "2M" } },
+  ],
+};
+
+function mkSshFinding(hostId: string, status: FindingStatus, installed: string, inv: Investigation | null): Finding {
+  return {
+    id: `f-${hostId}-6387`,
+    hostId,
+    cveId: REGRESSHION,
+    aliases: [`UBUNTU-${REGRESSHION}`],
+    title: "regreSSHion: unauthenticated RCE via signal-handler race in sshd",
+    status,
+    priority: status === "exposed" ? "high" : status === "vulnerable_not_exposed" ? "medium" : "info",
+    confidence: "high",
+    needsConfirmation: false,
+    inKev: false,
+    cvss: "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H",
+    package: { name: "openssh", installedVersion: installed, fixedVersion: SSH_FIXED },
+    naiveVerdict: "vulnerable",
+    rationale:
+      status === "exposed"
+        ? "**bank-ssh-01 is exposed.** The installed `openssh-server` build is vulnerable, `sshd` listens on **0.0.0.0:22** and `LoginGraceTime` is 120. Upgrade is the complete fix; `LoginGraceTime 0` is a partial, interim mitigation with a denial-of-service trade-off."
+        : status === "vulnerable_not_exposed"
+          ? "**bank-batch-01 has the vulnerable OpenSSH source package, but only the client.** The flaw is in `sshd`, which is not installed. Upgrade in the next maintenance window."
+          : "**bank-web-02 is not affected.** `openssh-server` is at the patched build `1:9.6p1-3ubuntu13.3`.",
+    mitigations: status === "not_affected" ? [] : ["Upgrade `openssh` packages to `1:9.6p1-3ubuntu13.3` or later. **This is the only complete fix.**", ...(status === "exposed" ? ["Partial: set `LoginGraceTime 0` in /etc/ssh/sshd_config (denial-of-service trade-off)."] : [])],
+    evidence:
+      status === "exposed"
+        ? { installed: `openssh-server ${installed}`, listening: "0.0.0.0:22 sshd", LoginGraceTime: "120" }
+        : status === "vulnerable_not_exposed"
+          ? { installed: `openssh-client ${installed}`, listening: "no listening sockets" }
+          : { installed: `openssh-server ${installed} (noble-security)` },
+    firstSeen: iso(-240),
+    updatedAt: iso(-15),
+    reportId: null,
+    investigation: inv,
   };
 }
 
@@ -162,7 +352,7 @@ function log(kind: AuditEvent["kind"], message: string, extra: Partial<AuditEven
 function baseAction(over: Partial<ActionRecord> & Pick<ActionRecord, "id" | "type" | "params" | "reason">): ActionRecord {
   return {
     hostId: "web-a",
-    findingId: findings[0]?.id ?? null,
+    findingId: findings.find((f) => f.hostId === (over.hostId ?? "web-a"))?.id ?? null,
     state: "pending",
     proposedBy: "agent",
     createdAt: iso(),
@@ -178,19 +368,68 @@ function baseAction(over: Partial<ActionRecord> & Pick<ActionRecord, "id" | "typ
   };
 }
 
+function seedSsh() {
+  findings = findings.filter((f) => f.cveId !== REGRESSHION);
+  findings.push(
+    mkSshFinding("ssh-d", "exposed", SSH_VULN, SSH_EXPOSED_INVESTIGATION),
+    mkSshFinding("web-b", "not_affected", SSH_FIXED, null),
+    mkSshFinding("batch-c", "vulnerable_not_exposed", SSH_VULN, SSH_VNE_INVESTIGATION),
+  );
+  actions = actions.filter((a) => a.hostId !== "ssh-d");
+  actions.push(
+    baseAction({
+      id: "a-sshcfg-ssh-d",
+      hostId: "ssh-d",
+      findingId: "f-ssh-d-6387",
+      type: "set_config_directive",
+      params: { file: "/etc/ssh/sshd_config", directive: "LoginGraceTime", value: "0" },
+      reason: "Interim partial mitigation for bank-ssh-01 (exposed): removes the login-grace race window. Trade-off: unauthenticated clients can occupy MaxStartups slots. Port 22 cannot be closed without losing administrative access.",
+      createdAt: iso(-200),
+    }),
+    baseAction({
+      id: "a-upgrade-ssh-d",
+      hostId: "ssh-d",
+      findingId: "f-ssh-d-6387",
+      type: "upgrade_packages",
+      params: { packages: ["openssh-server", "openssh-client", "openssh-sftp-server"] },
+      reason: "Complete fix: upgrade openssh to 1:9.6p1-3ubuntu13.3 on bank-ssh-01.",
+      createdAt: iso(-199),
+    }),
+    baseAction({
+      id: "a-restart-ssh-d",
+      hostId: "ssh-d",
+      findingId: "f-ssh-d-6387",
+      type: "restart_service",
+      params: { service: "ssh" },
+      reason: "Restart sshd to load the configuration change.",
+      state: "rejected",
+      createdAt: iso(-600),
+      decidedAt: iso(-590),
+      decidedBy: "rahim",
+      decisionNote: "Covered by the config change action, which restarts ssh itself.",
+    }),
+  );
+}
+
 function seedFindings() {
+  seedPhp();
+  seedSsh();
+}
+
+function seedPhp() {
   const rid = "r-php2shell";
-  findings = PHP2SHELL.flatMap((cve) => [
+  findings = findings.filter((f) => !PHP2SHELL.includes(f.cveId));
+  findings.push(...PHP2SHELL.flatMap((cve) => [
     mkFinding("web-a", cve, "exposed", "8.3.6-0maysync1", rid),
     mkFinding("web-b", cve, "not_affected", "8.3.6-0ubuntu0.24.04.13", rid),
     mkFinding("batch-c", cve, "vulnerable_not_exposed", "8.3.6-0maysync1", rid),
-  ]);
+  ]));
   reports = [
     {
       id: rid,
       createdAt: iso(-11),
       title: "PHP2Shell (CVE-2026-109618/109619): bank-web-01 EXPOSED — emergency upgrade required",
-      findingIds: findings.map((f) => f.id),
+      findingIds: findings.filter((f) => PHP2SHELL.includes(f.cveId)).map((f) => f.id),
       markdown: `# PHP2Shell exposure report
 
 **Summary:** 1 of 3 servers is exposed. A version-number scanner would flag all 3.
@@ -226,7 +465,8 @@ ${RATIONALE.not_affected}
     emailedTo: ["it-team@bank.example"],
     emailedAt: iso(-86390),
   });
-  actions = [
+  actions = actions.filter((a) => a.hostId === "ssh-d");
+  actions.push(
     // A superseded + revised pair: the agent first proposed blocking multipart, then revised to closing port 80 in chat.
     baseAction({
       id: "a-block-web-a",
@@ -257,7 +497,7 @@ ${RATIONALE.not_affected}
     baseAction({
       id: "a-restart-batch-c",
       hostId: "batch-c",
-      findingId: findings[2]?.id ?? null,
+      findingId: findings.find((f) => f.hostId === "batch-c" && PHP2SHELL.includes(f.cveId))?.id ?? null,
       type: "set_php_directive",
       params: { sapi: "cli", directive: "memory_limit", value: "256M" },
       reason: "Partial: cap CLI memory on bank-batch-01.",
@@ -267,14 +507,14 @@ ${RATIONALE.not_affected}
       decidedBy: "nusrat",
       decisionNote: "Not needed — no network path; we'll upgrade in the maintenance window.",
     }),
-  ];
+  );
   threads.set("t-demo-review", [
     { id: "m-1", role: "user", parts: [{ type: "text", text: "Can we avoid breaking uploads? Is blocking multipart enough?" }] },
     {
       id: "m-2",
       role: "assistant",
       parts: [
-        { type: "dynamic-tool", toolName: "reviseProposal", toolCallId: "call-rev1", state: "output-available", input: { actionId: "a-block-web-a", type: "firewall_port", params: { port: 80, protocol: "tcp", state: "closed" } }, output: actions[1] },
+        { type: "dynamic-tool", toolName: "reviseProposal", toolCallId: "call-rev1", state: "output-available", input: { actionId: "a-block-web-a", type: "firewall_port", params: { port: 80, protocol: "tcp", state: "closed" } }, output: actions.find((a) => a.id === "a-fw-web-a") },
         { type: "text", text: "Blocking multipart is only a **partial** mitigation. I revised the proposal to close **80/tcp** (containment) until the upgrade is applied. The site goes offline; upgrade is the complete fix." },
       ],
     },
@@ -343,7 +583,7 @@ function status(): StatusResponse {
     pendingActions: actions.filter((a) => a.state === "pending").length,
     inKevExposed: findings.filter((f) => f.status === "exposed" && f.inKev).length,
     recentEvents: audit.slice(0, 15),
-    demo,
+    demo: { ...demo, warning: null, scenarios: scenarioStates() },
   };
 }
 
@@ -356,7 +596,10 @@ function runScan(actor = "prohori") {
     scan.running = false;
     scan.lastFinishedAt = iso();
     scan.nextRunAt = iso(settings.scanIntervalSec);
-    if (demo.injected.length && findings.length === 0) seedFindings();
+    for (const sc of SCENARIOS) {
+      const released = sc.cveIds.every((c) => demo.injected.includes(c));
+      if (released && !findings.some((f) => sc.cveIds.includes(f.cveId))) (sc.id === "php2shell" ? seedPhp : seedSsh)();
+    }
     scan.lastResult = { newFindings: 0, changedFindings: 0, reportsSent: 0 };
     log("scan_finished", "Scan finished: no changes");
   }, 4000);
@@ -521,6 +764,10 @@ Bun.serve({
           return r ? json(r) : err(404, "report not found");
         }
         if (p === "/api/settings") return json(settings);
+        if (parts[0] === "profiles" && parts[1]) {
+          const prof = PROFILES[parts[1]];
+          return prof ? json(prof) : err(404, "no threat profile for this CVE");
+        }
         if (p === "/api/wild") return json(wildList);
         if (p === "/api/actions") {
           const st = url.searchParams.get("state");
@@ -593,6 +840,8 @@ Bun.serve({
               if (a.type === "firewall_port") {
                 applyFirewall(a, a.params.state !== "open");
                 a.result = { ok: true, diff: `+ prohori rule: drop ${String(a.params.protocol)} dport ${String(a.params.port)} (INPUT)`, output: "rule added; nginx on 0.0.0.0:80 is no longer reachable" };
+              } else if (a.type === "set_config_directive") {
+                a.result = { ok: true, diff: `- ${String(a.params.directive)} 120\n+ ${String(a.params.directive)} ${String(a.params.value)}`, output: `${String(a.params.file)} updated; ssh restarted` };
               } else {
                 a.result = {
                   ok: true,
@@ -615,21 +864,29 @@ Bun.serve({
         }
         if (p === "/api/demo/inject") {
           const b = await body();
-          const ids = Array.isArray(b.cveIds) ? (b.cveIds as string[]) : [...demo.replayHeld];
+          const sc = typeof b.scenarioId === "string" ? SCENARIOS.find((x) => x.id === b.scenarioId) : undefined;
+          if (b.scenarioId && !sc) return err(404, "unknown scenario");
+          const ids = sc ? sc.cveIds.filter((c) => demo.replayHeld.includes(c)) : Array.isArray(b.cveIds) ? (b.cveIds as string[]) : [...demo.replayHeld];
           demo.replayHeld = demo.replayHeld.filter((c) => !ids.includes(c));
           demo.injected = [...new Set([...demo.injected, ...ids])];
           log("demo_inject", `${actor} released ${ids.join(", ")} for replay`, { actor });
           return json({ injected: ids });
         }
         if (p === "/api/demo/reset") {
-          demo.replayHeld = [...PHP2SHELL];
-          demo.injected = [];
-          findings = [];
-          reports = [];
-          actions = [];
-          for (const inv of Object.values(inventories)) inv.firewall.closedPorts = [];
-          log("demo_inject", `${actor} reset the demo`, { actor });
-          return json({ ok: true });
+          const b = await body();
+          const sc = typeof b.scenarioId === "string" ? SCENARIOS.find((x) => x.id === b.scenarioId) : undefined;
+          if (b.scenarioId && !sc) return err(404, "unknown scenario");
+          const cves = sc ? sc.cveIds : SCENARIOS.flatMap((x) => x.cveIds);
+          const fids = new Set(findings.filter((f) => cves.includes(f.cveId)).map((f) => f.id));
+          const restoring = actions.filter((a) => a.state === "applied" && a.findingId && fids.has(a.findingId)).map((a) => `${a.type} on ${hostName(a.hostId)}`);
+          demo.replayHeld = [...new Set([...demo.replayHeld, ...cves])];
+          demo.injected = demo.injected.filter((c) => !cves.includes(c));
+          findings = findings.filter((f) => !fids.has(f.id));
+          reports = reports.filter((r) => !r.findingIds.some((x) => fids.has(x)));
+          actions = actions.filter((a) => !(a.findingId && fids.has(a.findingId)));
+          if (!sc) for (const inv of Object.values(inventories)) inv.firewall.closedPorts = [];
+          log("demo_inject", `${actor} reset ${sc ? sc.title : "the demo"}`, { actor });
+          return json({ ok: true, restoring, failed: [] });
         }
         if (p === "/api/chat") {
           const b = (await body()) as ChatBody;

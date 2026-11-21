@@ -22,6 +22,7 @@ export function describeAction(a: Pick<ActionRecord, "type" | "params" | "hostId
     case "upgrade_packages": return `upgrade ${(p.packages ?? []).join(", ")}${on}`;
     case "nginx_block_multipart": return `block multipart uploads in nginx${on}`;
     case "set_php_directive": return `set ${p.directive}=${p.value} for PHP ${p.sapi}${on}`;
+    case "set_config_directive": return `set ${p.directive} ${p.value} in ${p.file}${on}`;
     case "restart_service": return `restart ${p.service}${on}`;
     default: return `${a.type}${on}`;
   }
@@ -134,7 +135,11 @@ function sameJob(a: ActionRecord, b: ActionRecord): boolean {
     const p = a.params as any, q = b.params as any;
     return p.sapi === q.sapi && p.directive === q.directive;
   }
-  return true; // upgrade_packages, nginx_block_multipart, restart_service(same type) are the same job
+  if (a.type === "set_config_directive") {
+    const p = a.params as any, q = b.params as any;
+    return p.file === q.file && p.directive === q.directive;
+  }
+  return true; // other action types: same type on the same host = the same job
 }
 
 /** Close a pending proposal without a human decision (duplicate or no longer needed). */

@@ -29,7 +29,7 @@ export default function ApprovalsPage() {
       <div className="mb-5 flex items-start gap-2 rounded-lg border border-line bg-panel px-3 py-2.5 text-xs text-muted">
         <ShieldAlert className="mt-0.5 size-4 shrink-0 text-blue-400" />
         <span>
-          <b className="text-fg">Human-in-the-loop control.</b> Sentinel can only <i>propose</i> actions from a fixed allowlist (close a firewall port, upgrade packages, block multipart uploads, set a php.ini directive, restart a service) and can revise a proposal on request. It cannot approve or execute changes. A named administrator approves after review; the daemon on each asset re-validates every parameter locally and records a rollback point. Every decision is recorded in the Audit Log.
+          <b className="text-fg">Human-in-the-loop control.</b> Sentinel can only <i>propose</i> actions from a fixed allowlist (close a firewall port, upgrade packages, block multipart uploads, set an allow-listed configuration directive such as a php.ini or sshd_config option, restart a service) and can revise a proposal on request. It cannot approve or execute changes. A named administrator approves after review; the daemon on each asset re-validates every parameter locally and records a rollback point. Every decision is recorded in the Audit Log.
         </span>
       </div>
       <ErrorBanner error={actions.error} />

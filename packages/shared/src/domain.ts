@@ -94,6 +94,39 @@ export interface Finding {
   firstSeen: string;
   updatedAt: string;
   reportId: string | null;
+  /** Sentinel's investigation for this asset/CVE (absent for findings created before investigations existed). */
+  investigation?: Investigation | null;
+}
+
+/** Per-CVE analysis Sentinel derives from the advisory text (cached; never hard-coded per CVE). */
+export interface ThreatProfile {
+  cveId: string;
+  summary: string;                 // one-paragraph plain-English description
+  component: string;               // affected component, e.g. "the PHP web runtime (FPM/Apache module)"
+  attackVector: "network" | "adjacent" | "local" | "physical" | "unknown";
+  preconditions: { id: string; text: string; howToCheck: string }[]; // checkable on a host
+  completeFix: string;             // e.g. "upgrade <source package> to the distro fixed build"
+  partialMitigations: { text: string; tradeoff: string }[];
+  exploitedInWild: boolean;
+  sources: string[];               // URLs/ids the profile was derived from
+  generatedAt: string;
+}
+
+export interface InvestigationStep {
+  tool: string;                    // e.g. "runHostQuery", "readConfigFile"
+  input: Record<string, unknown>;
+  summary: string;                 // what the result showed (short)
+  ref: string;                     // citation id, e.g. "S3"
+}
+
+export interface Investigation {
+  triage: { decidedBy: "rule" | "sentinel"; reason: string };
+  profile: Pick<ThreatProfile, "summary" | "component" | "attackVector" | "completeFix"> | null;
+  preconditions: { id: string; text: string; result: "met" | "not_met" | "unknown"; evidence: string[]; note: string }[];
+  steps: InvestigationStep[];
+  conclusion: string;              // Sentinel's conclusion before code guardrails
+  guardrail: string | null;        // set when code overrode or downgraded Sentinel's conclusion, and why
+  remediationPlan: { kind: "containment" | "fix" | "partial"; summary: string; tradeoff: string; actionType: string | null; params: Record<string, unknown> | null }[];
 }
 
 export interface Report {

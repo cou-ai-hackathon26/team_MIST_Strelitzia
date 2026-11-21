@@ -22,9 +22,7 @@ export function shortVerdictReason(f: Finding): string {
     case "vulnerable_not_exposed":
       if (f.evidence["firewall"] && /closed/i.test(f.evidence["firewall"]))
         return `Vulnerable build, contained: ${f.evidence["firewall"]}. Containment only; upgrade still required`;
-      if (/cli-only/i.test(f.evidence["reachability"] ?? "") || f.evidence["webSapi"] === "none")
-        return "Vulnerable build, unreachable: PHP is CLI-only with no network listeners. Patch in next maintenance cycle";
-      return `Vulnerable build, unreachable: no network path${listening ? ` (${listening})` : ""}. Patch in next maintenance cycle`;
+      return "Vulnerable build, unreachable: no network path to the affected component. Patch in next maintenance cycle";
     case "not_affected":
       return f.package?.fixedVersion
         ? `Installed build already contains the fix (≥ ${f.package.fixedVersion}, distribution backport)`
@@ -69,7 +67,9 @@ export function groupByCve(findings: Finding[]): CveGroup[] {
       groups.set(sig, { cveIds: [cve], title: fs[0]!.title, inKev: fs.some((f) => f.inKev), findings: fs });
     }
   }
-  return [...groups.values()].sort((a, b) => sortFindings(a.findings[0]!, b.findings[0]!));
+  // Most severe group first: compare each group's most severe finding (priority, then status).
+  const head = (g: CveGroup) => [...g.findings].sort(sortFindings)[0]!;
+  return [...groups.values()].sort((a, b) => sortFindings(head(a), head(b)) || Number(b.inKev) - Number(a.inKev));
 }
 
 export const EVENT_TONE: Partial<Record<AuditEvent["kind"], string>> = {

@@ -62,8 +62,10 @@ if [ "$TIER2" = true ]; then
     grep -rqs 'include /etc/nginx/prohori/\*.conf;' /etc/nginx/sites-enabled/ \
       || echo "WARNING: add 'include /etc/nginx/prohori/*.conf;' inside your server block for nginx_block_multipart" >&2
   fi
-  for ini in /etc/php/8.3/fpm/php.ini /etc/php/8.3/cli/php.ini /etc/php/8.3/apache2/php.ini; do
-    if [ -f "$ini" ]; then chgrp prohori "$ini"; chmod g+w "$ini"; fi
+  # set_config_directive edits exactly the CONFIG_DIRECTIVE_ALLOWLIST files in place (sshd_config: the daemon
+  # runs `sshd -t` before restarting ssh and reverts the edit if validation fails).
+  for f in /etc/php/8.3/fpm/php.ini /etc/php/8.3/cli/php.ini /etc/php/8.3/apache2/php.ini /etc/ssh/sshd_config; do
+    if [ -f "$f" ]; then chgrp prohori "$f"; chmod g+w "$f"; fi
   done
   SUDO_T2=$(cat <<'SUDO'
 Defaults!/usr/bin/apt-get env_keep += "DEBIAN_FRONTEND"
@@ -71,14 +73,15 @@ Cmnd_Alias PROHORI_APT = /usr/bin/apt-get update, \
   /usr/bin/apt-get install -y --only-upgrade -o Dpkg\:\:Options\:\:=--force-confold *, \
   /usr/bin/apt-get install -y --allow-downgrades -o Dpkg\:\:Options\:\:=--force-confold *
 Cmnd_Alias PROHORI_SVC = /usr/sbin/service nginx reload, /usr/sbin/service nginx restart, \
-  /usr/sbin/service php8.3-fpm restart, /usr/sbin/service apache2 restart
+  /usr/sbin/service php8.3-fpm restart, /usr/sbin/service apache2 restart, /usr/sbin/service ssh restart
 Cmnd_Alias PROHORI_NGINX = /usr/sbin/nginx -t, /usr/sbin/nginx -T
+Cmnd_Alias PROHORI_CFGTEST = /usr/sbin/sshd -t, /usr/sbin/sshd -T, /usr/sbin/php-fpm8.3 -t
 Cmnd_Alias PROHORI_FW = \
   /usr/sbin/iptables -I INPUT 1 -p tcp -m tcp --dport * -m comment --comment prohori\:* -j REJECT --reject-with tcp-reset, \
   /usr/sbin/iptables -I INPUT 1 -p udp -m udp --dport * -m comment --comment prohori\:* -j DROP, \
   /usr/sbin/iptables -D INPUT -p tcp -m tcp --dport * -m comment --comment prohori\:* -j REJECT --reject-with tcp-reset, \
   /usr/sbin/iptables -D INPUT -p udp -m udp --dport * -m comment --comment prohori\:* -j DROP
-prohori ALL=(root) NOPASSWD: PROHORI_APT, PROHORI_SVC, PROHORI_NGINX, PROHORI_FW
+prohori ALL=(root) NOPASSWD: PROHORI_APT, PROHORI_SVC, PROHORI_NGINX, PROHORI_CFGTEST, PROHORI_FW
 SUDO
 )
 fi

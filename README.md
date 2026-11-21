@@ -27,10 +27,15 @@ Prohori keeps a live inventory of every server, watches vulnerability intelligen
 ```
 
 1. **Inventory.** A thin daemon on each server wraps osquery and reports exact package builds (including the distro *source* package), listening ports, firewall state and relevant config. It connects **outbound** to the brain; the brain never logs into servers.
-2. **Detection.** Every scan matches installed builds against OSV.dev using the distro ecosystem (e.g. `Ubuntu:24.04:LTS`), so backported fixes are recognized. Only CVEs that are on CISA KEV or rated critical become findings.
-3. **Assessment.** For each affected asset Sentinel combines deterministic evidence — installed build vs. fixed build, whether a web runtime is serving the vulnerable component, whether the port is reachable or firewalled — into one of three verdicts: **Exposed**, **Vulnerable · Unreachable**, **Not Affected**. The model writes the rationale; hard rules enforced in code decide the status.
-4. **Reporting.** New or escalated exposures produce an incident report that is emailed to the configured security team and kept in the dashboard.
-5. **Remediation.** Sentinel proposes fixes from a fixed allow-list (close a firewall port, upgrade packages, block multipart uploads in nginx, adjust a php.ini directive, restart a service). An admin reviews the proposal in conversation with Sentinel, optionally has it revised, and approves it. Every decision is attributed and logged; every change can be rolled back.
+2. **Detection.** Every scan matches installed builds against OSV.dev using the distro ecosystem (e.g. `Ubuntu:24.04:LTS`), so backported fixes are recognized.
+3. **Triage (Sentinel).** Sentinel reviews every matched CVE and decides which deserve investigation, with a written reason — e.g. a pre-auth remote code execution in a network daemon, as opposed to a local or library-only bug. A floor rule in code always includes CISA KEV and distro-critical CVEs.
+4. **Advisory analysis (Sentinel).** For each new CVE, Sentinel reads the advisory sources referenced by the vulnerability record (vendor advisories, distro notices, mailing-list disclosures) and derives a **threat profile**: the affected component, attack vector, preconditions that can be checked on a server, the complete fix, and partial mitigations with their trade-offs. Nothing about any specific CVE or product is hard-coded.
+5. **Investigation (Sentinel).** Per affected asset, Sentinel runs read-only checks through the daemon — installed binaries, listeners, services, firewall, allow-listed configuration files — and tests each precondition, citing the checks that support every conclusion. Verdicts: **Exposed**, **Vulnerable · Unreachable**, **Not Affected**.
+6. **Code guardrails.** A build the distro reports as patched is always *Not Affected*; a reachability claim without cited evidence, or contradicted by the facts, becomes *Exposed* and is flagged for confirmation; firewall containment is checked against the actual rules. Any override is recorded on the finding.
+7. **Remediation plan (Sentinel).** Sentinel ranks fixes from the allow-list (firewall port, package upgrade, nginx upload block, allow-listed configuration directive, service restart) for the specific asset and explains trade-offs. It knows the platform's constraints (for example, Prohori never closes SSH port 22) and plans around them.
+8. **Reporting and approval.** New or escalated exposures produce an incident report emailed to the security team. An admin reviews proposed fixes in conversation with Sentinel, optionally has them revised, and approves; every decision is attributed and logged, and every change can be rolled back.
+
+Every finding page shows Sentinel's full investigation: triage reason, threat profile, preconditions with citations, the checks it ran, its conclusion, any guardrail, and the ranked remediation plan.
 
 ### Safety model
 
@@ -65,7 +70,7 @@ bun run setup                 # installs dependencies and builds the host daemon
 ### 2. Start the lab assets
 
 ```bash
-bun run targets:up            # bank-web-01, bank-web-02, bank-batch-01 + Mailpit
+bun run targets:up            # bank-web-01, bank-web-02, bank-batch-01, bank-ssh-01 + Mailpit
 ```
 
 ### 3. Start Sentinel and the dashboard (two terminals)
@@ -97,7 +102,26 @@ All three lab assets report **PHP 8.3.6** — a version-number check flags every
 | bank-web-02 (`web-b`) | `8.3.6-0ubuntu0.24.04.13` (patched backport) | nginx + php-fpm on :80 | **Not Affected** |
 | bank-batch-01 (`batch-c`) | `8.3.6-0maysync1` (vulnerable) | PHP CLI only, nothing listening | **Vulnerable · Unreachable** |
 
-PHP2Shell is **embargoed** until you click **Settings → Demonstration Controls → Replay PHP2Shell Disclosure**, so the live demo shows Sentinel discovering a new CVE on its own.
+PHP2Shell is **embargoed** until you click **Replay Disclosure** for it in **Settings → Demonstration Controls**, so the live demo shows Sentinel discovering a new CVE on its own.
+
+### Held-out scenario: regreSSHion (generalization check)
+
+A second scenario that no prompt or line of scan code mentions. It exercises everything the PHP2Shell path does not: the CVE is not on CISA KEV and is not distro-critical (so only Sentinel's triage picks it up), the vulnerable service listens on SSH port 22 (which Prohori never firewalls, so Sentinel must plan around it), and its documented mitigation is partial with a denial-of-service trade-off that Sentinel has to find in the advisory.
+
+| Asset | OpenSSH build | Serving | Expected |
+|---|---|---|---|
+| bank-ssh-01 (`ssh-d`) | `1:9.6p1-3ubuntu13` (vulnerable) | sshd on :22 | **Exposed** · High |
+| bank-web-02 (`web-b`) | latest noble-security (patched) | sshd on :22 | **Not Affected** |
+| bank-batch-01 (`batch-c`) | `1:9.6p1-3ubuntu13`, client only | no sshd | **Vulnerable · Unreachable** |
+
+### Evaluation
+
+```bash
+bun run eval           # replays PHP2Shell 3× and regreSSHion 1× against expected verdicts
+bun run prompt-audit   # fails if any prompt or scan code names a specific CVE, product or CVE-specific mitigation
+```
+
+The evaluation checks every asset's verdict and priority, that each finding carries an investigation, and that every non-safe finding has a remediation plan. A newly disclosed CVE takes roughly 60–120 s from disclosure to verdict (Sentinel analyses the advisory once and caches the profile).
 
 The full presentation runbook — pre-flight checklist, click-by-click script, talking points and recovery — is in **[docs/DEMO.md](docs/DEMO.md)**.
 
@@ -112,7 +136,7 @@ All settings live in the root `.env` (see [`.env.example`](.env.example) for eve
 | `OPENCODE_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | Sentinel's model (Anthropic Messages API format) |
 | `BRAIN_PORT`, `BRAIN_API_TOKEN` | Brain port and the shared secret used by the dashboard |
 | `SEED_HOSTS` | Pre-enrolled lab assets (`id:name:token`) |
-| `DEMO_REPLAY_HOLD` | CVEs embargoed until the disclosure is replayed |
+| `DEMO_SCENARIOS`, `DEMO_REPLAY_HOLD` | Replayable disclosures and their CVEs (embargoed until replayed) |
 | `SMTP_HOST`, `SMTP_PORT`, `REPORT_FROM`, `DEFAULT_REPORT_EMAILS` | Report delivery |
 | `ADMIN_USERS`, `SESSION_SECRET` | Dashboard accounts and session signing |
 
@@ -132,6 +156,8 @@ Scan interval, report recipients and Tier-2 remediation can also be changed at r
 | `bun run web` | Dashboard in development mode |
 | `bun run daemon:build` | Rebuild `apps/daemon/bin/prohori-daemon` (restart the lab containers afterwards) |
 | `bun run healthcheck` | Pre-flight check of every dependency |
+| `bun run eval` | Replay each scenario and score Sentinel's verdicts |
+| `bun run prompt-audit` | Verify no CVE- or product-specific knowledge is hard-coded |
 
 ---
 
@@ -145,10 +171,13 @@ apps/
 packages/
   shared/   Contracts shared by all apps: domain types, WebSocket protocol, named queries, actions, API
 infra/
-  docker-compose.yml   Lab assets (Ubuntu 24.04 + nginx + PHP builds) and Mailpit
+  docker-compose.yml   Lab assets (Ubuntu 24.04: nginx/PHP builds, OpenSSH builds) and Mailpit
   targets/             Lab asset image and sample bank site
   vm/install-daemon.sh Daemon installer for real Ubuntu servers (systemd, sudoers allow-list)
-scripts/healthcheck.ts Pre-flight check
+scripts/
+  healthcheck.ts       Pre-flight check
+  eval.ts              Scenario evaluation (expectations in eval-scenarios.json)
+  prompt-audit.ts      Guard against hard-coded CVE knowledge
 docs/
   DEMO.md       Presentation runbook
   CONTRACTS.md  Internal build contract and design notes

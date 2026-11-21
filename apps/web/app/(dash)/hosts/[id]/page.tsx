@@ -128,7 +128,7 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
               </Card>
 
               <Card>
-                <CardHeader title="Configuration (PHP / nginx)" icon={<Settings2 className="size-4 text-blue-400" />} />
+                <CardHeader title="Configuration" icon={<Settings2 className="size-4 text-blue-400" />} />
                 <div className="px-4 py-2">
                   {configEntries.length === 0 ? <div className="py-2 text-sm text-muted">No configuration values reported.</div> : configEntries.map(([k, v]) => <KV key={k} k={<span className="font-mono text-xs" title={k}>{k}</span>} v={v} />)}
                 </div>

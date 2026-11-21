@@ -69,6 +69,7 @@ export default function OverviewPage() {
   const hostName = (id: string) => d?.hosts.find((h) => h.id === id)?.name ?? id;
   const exposedFindings = (findings.data ?? []).filter((f) => f.status === "exposed");
   const exposedHosts = [...new Set(exposedFindings.map((f) => f.hostId))];
+  const exposedLabel = exposedFindings.some((f) => f.priority === "critical") ? "Critical exposure" : "Exposure";
 
   return (
     <>
@@ -99,7 +100,7 @@ export default function OverviewPage() {
               <AlertOctagon className="size-7 shrink-0 text-red-400" />
               <div className="min-w-0 flex-1">
                 <div className="font-display text-lg text-white">
-                  {exposedHosts.length === 1 ? "Critical exposure detected on " : `Critical exposure detected on ${exposedHosts.length} assets: `}
+                  {exposedLabel}{exposedHosts.length === 1 ? " detected on " : ` detected on ${exposedHosts.length} assets: `}
                   <span className="text-red-300">{exposedHosts.map(hostName).join(", ")}</span>
                 </div>
                 <div className="text-sm text-red-100/80">

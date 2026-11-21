@@ -1,4 +1,4 @@
-# Prohori dev targets: three demo servers + a mail catcher.
+# Prohori dev targets: four demo servers + a mail catcher.
 #   docker compose -f infra/docker-compose.yml up -d --build
 # The daemon binary dir apps/daemon/bin is bind-mounted at /opt/prohori/bin (build first: bun run daemon:build).
 # (A directory mount, not a single file: Docker Desktop loses single-file mounts when the binary is rebuilt.)
@@ -35,7 +35,8 @@ services:
     <<: *target
     build:
       context: ./targets
-      args: { ROLE: web, PHP_BUILD: "8.3.6-0ubuntu0.24.04.13" }
+      # SSH: openssh-server at the latest noble-security build (patched), sshd on :22
+      args: { ROLE: web, PHP_BUILD: "8.3.6-0ubuntu0.24.04.13", SSH: server, SSH_BUILD: "" }
     image: prohori-target-b
     hostname: bank-web-02
     ports: ["8082:80"]
@@ -51,7 +52,8 @@ services:
     <<: *target
     build:
       context: ./targets
-      args: { ROLE: batch, PHP_BUILD: "8.3.6-0maysync1" }
+      # SSH: openssh-client only (vulnerable noble release build), no sshd
+      args: { ROLE: batch, PHP_BUILD: "8.3.6-0maysync1", SSH: client, SSH_BUILD: "1:9.6p1-3ubuntu13" }
     image: prohori-target-c
     hostname: bank-batch-01
     volumes:
@@ -60,6 +62,22 @@ services:
       PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
       PROHORI_HOST_ID: batch-c
       PROHORI_TOKEN: dev-token-c
+      PROHORI_TIER2: "true"
+
+  target-d:
+    <<: *target
+    build:
+      context: ./targets
+      # No PHP / web server. openssh-* pinned to the noble release build (vulnerable), sshd on 0.0.0.0:22.
+      args: { ROLE: ssh, SSH: server, SSH_BUILD: "1:9.6p1-3ubuntu13" }
+    image: prohori-target-d
+    hostname: bank-ssh-01
+    volumes:
+      - ../apps/daemon/bin:/opt/prohori/bin:ro
+    environment:
+      PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
+      PROHORI_HOST_ID: ssh-d
+      PROHORI_TOKEN: dev-token-d
       PROHORI_TIER2: "true"
 
   mailhog:

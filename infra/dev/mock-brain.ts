@@ -11,7 +11,10 @@ import type { ServerWebSocket } from "bun";
 
 const PORT = Number(process.env.MOCK_BRAIN_PORT ?? 4000);
 const ROLLBACK_AFTER_SEC = Number(process.env.ROLLBACK_AFTER_SEC ?? 30);
-const TOKENS: Record<string, string> = { "web-a": "dev-token-a", "web-b": "dev-token-b", "batch-c": "dev-token-c" };
+const TOKENS: Record<string, string> = { "web-a": "dev-token-a", "web-b": "dev-token-b", "batch-c": "dev-token-c", "ssh-d": "dev-token-d" };
+// MOCK_NO_SCENARIO=1 skips the automatic per-host scenario; MOCK_VERBOSE=1 logs every query_result row.
+const NO_SCENARIO = !!process.env.MOCK_NO_SCENARIO;
+const VERBOSE = !!process.env.MOCK_VERBOSE;
 
 type Data = { hostId?: string; scenarioDone?: boolean };
 const sockets = new Map<string, ServerWebSocket<Data>>();
@@ -97,14 +100,15 @@ Bun.serve<Data>({
             `<- inventory ${ws.data.hostId} reason=${msg.reason} host=${s.hostname} os=${s.os?.name} ${s.os?.versionId} ${s.os?.codename} pkgs=${s.packages?.length} procs=${s.processes?.length}\n` +
               `     php8.3 (source=php8.3): ${php.join(", ") || "none"}\n     listening: ${ports.join(", ") || "none"}\n     firewall: ${JSON.stringify(s.firewall)}\n     config: ${JSON.stringify(s.config)}`,
           );
-          if (!ws.data.scenarioDone) {
+          if (!ws.data.scenarioDone && !NO_SCENARIO) {
             ws.data.scenarioDone = true;
             scenario(ws);
           }
           break;
         }
         case "query_result":
-          log(`<- query_result ${ws.data.hostId} ${msg.requestId} ok=${msg.ok} rows=${msg.rows?.length ?? 0} ${msg.error ?? ""} sample=${JSON.stringify(msg.rows?.find((r: any) => String(r.name).startsWith("php8.3")) ?? msg.rows?.[0] ?? null)}`);
+          if (VERBOSE) log(`<- query_result ${ws.data.hostId} ${msg.requestId} ok=${msg.ok} rows=${msg.rows?.length ?? 0} ${msg.error ?? ""}\n${(msg.rows ?? []).map((r) => "     " + JSON.stringify(r)).join("\n")}`);
+          else log(`<- query_result ${ws.data.hostId} ${msg.requestId} ok=${msg.ok} rows=${msg.rows?.length ?? 0} ${msg.error ?? ""} sample=${JSON.stringify(msg.rows?.find((r: any) => String(r.name).startsWith("php8.3")) ?? msg.rows?.[0] ?? null)}`);
           break;
         case "action_result":
           log(`<- action_result ${ws.data.hostId} ${msg.actionId} kind=${msg.kind} ok=${msg.ok}\n--- diff ---\n${msg.diff}\n--- output (${msg.output.length} chars) ---\n${msg.output}\n------------`);

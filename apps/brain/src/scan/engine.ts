@@ -1,6 +1,6 @@
 // Deterministic scan logic (data gathering, evidence, hard rules). AI steps live in ./ai.ts.
-import type { Finding, FindingStatus, InstalledPackage, InventorySnapshot, Priority } from "@prohori/shared";
-import { getFindingByKey, getInventory, holdState, listFindings, listHostRows, sha256, updateHostMeta } from "../db";
+import type { Finding, FindingStatus, InstalledPackage, InventorySnapshot, Investigation, Priority, ThreatProfile } from "@prohori/shared";
+import { getFindingByKey, getInventory, holdState, listHostRows, sha256, updateHostMeta } from "../db";
 import { inKev, kevEntry } from "../vuln/kev";
 import {
   allIds, cveOf, distroFixed, ecosystemFor, getVuln, getVulns, queryBatch, severityOf, upstreamRanges, type OsvVuln,
@@ -35,32 +35,34 @@ export interface Candidate {
   cvssScore: number | null;
   severityLabel: string | null;
   upstreamRanges: VersionRange[];
+  cveRecord: OsvVuln | null;
   distroRecords: Record<string, OsvVuln | null>; // "UBUNTU" | "DEBIAN"
   textOnly: AdvisoryExtraction | null;
-  reason: string; // why it passed the signal filter
+  reason: string; // why triage selected it
+  triage: { decidedBy: "rule" | "sentinel"; reason: string };
+  profile: ThreatProfile | null;
 }
 
+/** Deterministic, product-agnostic facts about one (host, CVE) pair. Sentinel's investigation builds on these. */
 export interface Evidence {
   hostId: string;
   hostName: string;
   sourcePackage: string | null;
   binaries: string[];
+  binaryVersions: string[];
   installedVersion: string | null;
   upstreamVersion: string | null;
   distroVerdict: "vulnerable" | "not_vulnerable" | "unknown";
   distroFixed: string | null;
   installedVsFixed: string;
   naiveVerdict: "vulnerable" | "not_vulnerable" | "unknown";
-  reachable: boolean | null;
-  reachability: string;
   listening: string[];
   firewall: string;
-  exposedPorts: number[];
-  webSapi: string[];
-  config: Record<string, string>;
+  closedPorts: string[];
   inKev: boolean;
   cvss: string | null;
   needsConfirmation: boolean;
+  factsDigest: string;
 }
 
 export interface Classified {
@@ -73,6 +75,11 @@ export interface Classified {
   mitigations: string[];
   needsConfirmation: boolean;
   evidenceHash: string;
+  investigation: Investigation;
+  reachability: string;
+  exposedPorts: { port: number; protocol: "tcp" | "udp" }[];
+  /** true when the finding was reused unchanged from the previous scan (evidence-hash cache hit) */
+  cached?: boolean;
 }
 
 export interface ScanContext {
@@ -85,6 +92,8 @@ export interface ScanContext {
   matches: Map<string, Map<string, { version: string; ids: string[] }>>;
   rawMatchCount: Record<string, number>;
   details: Map<string, OsvVuln | null>;
+  /** Sentinel's triage of every matched CVE this scan: cve → decision */
+  triage: Map<string, { decision: "investigate" | "ignore"; decidedBy: "rule" | "sentinel"; reason: string; cached: boolean }>;
   candidates: Candidate[];
   evidence: Map<string, Evidence[]>; // cve → evidence per host
   classified: Classified[];
@@ -170,46 +179,56 @@ export async function osvMatch(ctx: ScanContext) {
   }
 }
 
-// ---------------------------------------------------------------- c. signal filter
-/**
- * A CVE becomes a candidate if it is on CISA KEV, or the distro rates it critical, or (no distro rating
- * available) its CVSS v3 base score is >= 9. Distro triage beats raw NVD CVSS when both exist.
- * CVEs with open (non-not_affected) findings are always re-evaluated so they can resolve.
- */
-export async function signalFilter(ctx: ScanContext) {
-  const held = heldSet();
-  const byCve = new Map<string, { sources: Set<string>; reason: string }>();
-  for (const [, perHost] of ctx.matches) {
+// ---------------------------------------------------------------- c. matched CVEs (input to Sentinel's triage)
+export interface MatchedCve {
+  cve: string;
+  sources: Set<string>;
+  hosts: Set<string>;
+  records: OsvVuln[];
+}
+
+/** Group the (non-held) raw OSV matches by CVE id. */
+export function matchedCves(ctx: ScanContext): Map<string, MatchedCve> {
+  const byCve = new Map<string, MatchedCve>();
+  for (const [hostId, perHost] of ctx.matches) {
     for (const [src, m] of perHost) {
       for (const id of m.ids) {
         const v = ctx.details.get(id) ?? null;
         const cve = v ? cveOf(v) : (id.match(/(CVE-\d{4}-\d+)$/)?.[1] ?? null);
         if (!cve) continue;
-        const sev = severityOf(v);
-        let reason = "";
-        if (inKev(cve)) reason = "on CISA KEV";
-        else if (sev.label === "critical") reason = "distro severity critical";
-        else if (!sev.label && sev.score !== null && sev.score >= 9) reason = `CVSS ${sev.score}`;
-        if (!reason) continue;
-        const e = byCve.get(cve) ?? { sources: new Set<string>(), reason };
+        const e = byCve.get(cve) ?? { cve, sources: new Set<string>(), hosts: new Set<string>(), records: [] };
         e.sources.add(src);
+        e.hosts.add(hostId);
+        if (v && !e.records.some((r) => r.id === v.id)) e.records.push(v);
         byCve.set(cve, e);
       }
     }
   }
-  // keep re-evaluating CVEs that still have open findings
-  for (const f of listFindings()) {
-    if (f.status === "not_affected" || byCve.has(f.cveId) || held.has(f.cveId)) continue;
-    byCve.set(f.cveId, { sources: new Set(f.package ? [f.package.name] : []), reason: "re-check of open finding" });
-  }
+  return byCve;
+}
 
-  for (const [cve, { sources, reason }] of byCve) {
+/** Best severity across a CVE's matched records (distro label preferred, then the highest CVSS score). */
+export function bestSeverity(records: (OsvVuln | null)[]) {
+  const sevs = records.map((r) => severityOf(r));
+  const best = sevs.reduce((a, b) => ((b.score ?? -1) > (a.score ?? -1) ? b : a), { score: null, vector: null, label: null } as ReturnType<typeof severityOf>);
+  return { score: best.score, vector: best.vector ?? sevs.find((s) => s.vector)?.vector ?? null, label: sevs.find((s) => s.label)?.label ?? null };
+}
+
+/** Hard floor of the triage: these are always investigated, whatever the AI thinks. */
+export function floorRule(cve: string, records: (OsvVuln | null)[]): string | null {
+  if (inKev(cve)) return "on CISA KEV (known exploited)";
+  if (bestSeverity(records).label === "critical") return "distro priority critical";
+  return null;
+}
+
+/** Full candidate records for the CVEs triage chose (plus re-checks of open findings). */
+export async function buildCandidates(ctx: ScanContext, chosen: Map<string, { sources: Set<string>; decidedBy: "rule" | "sentinel"; reason: string }>) {
+  const held = heldSet();
+  for (const [cve, { sources, decidedBy, reason }] of chosen) {
     const [cveRec, ubuntu, debian] = await Promise.all([getVuln(cve), getVuln(`UBUNTU-${cve}`), getVuln(`DEBIAN-${cve}`)]);
     if (isHeldVuln(cveRec, cve, held)) continue;
     const ke = kevEntry(cve);
-    const sevs = [severityOf(ubuntu), severityOf(debian), severityOf(cveRec)];
-    const best = sevs.reduce((a, b) => ((b.score ?? -1) > (a.score ?? -1) ? b : a));
-    const vector = best.vector ?? sevs.find((s) => s.vector)?.vector ?? null;
+    const sev = bestSeverity([ubuntu, debian, cveRec]);
     const aliases = new Set<string>();
     for (const r of [cveRec, ubuntu, debian]) if (r) for (const id of allIds(r)) aliases.add(id);
     aliases.delete(cve);
@@ -222,13 +241,16 @@ export async function signalFilter(ctx: ScanContext) {
       details: (cveRec?.details ?? ubuntu?.details ?? debian?.details ?? "").slice(0, 4000),
       kev: !!ke,
       kevInfo: ke,
-      cvss: vector ? (best.score !== null ? `${best.score} ${vector}` : vector) : null,
-      cvssScore: best.score,
-      severityLabel: sevs.find((s) => s.label)?.label ?? null,
+      cvss: sev.vector ? (sev.score !== null ? `${sev.score} ${sev.vector}` : sev.vector) : null,
+      cvssScore: sev.score,
+      severityLabel: sev.label,
       upstreamRanges: upstreamRanges(cveRec),
+      cveRecord: cveRec,
       distroRecords: { UBUNTU: ubuntu, DEBIAN: debian },
       textOnly: null,
       reason,
+      triage: { decidedBy, reason },
+      profile: null,
     });
   }
 }
@@ -238,64 +260,64 @@ export function needsTextPath(c: Candidate): boolean {
   return !c.distroRecords.UBUNTU && !c.distroRecords.DEBIAN && c.upstreamRanges.length === 0;
 }
 
-// ---------------------------------------------------------------- d+f. cross-host evidence
-const WEB_SERVERS = /^(nginx|apache2|httpd|caddy|lighttpd|php-fpm.*|php\d.*-fpm.*)$/;
-const isLoopback = (addr: string) => addr.startsWith("127.") || addr === "::1" || addr === "localhost";
+// ---------------------------------------------------------------- d. cross-host facts (deterministic, product-agnostic)
+export const isLoopback = (addr: string) => addr.startsWith("127.") || addr === "::1" || addr === "localhost";
 
-function closedPortsOf(inv: InventorySnapshot): Set<string> {
+export function closedPortsOf(inv: InventorySnapshot): Set<string> {
   return new Set((inv.firewall?.closedPorts ?? []).map((r) => `${r.port}/${r.protocol ?? "tcp"}`));
 }
 
-function reachabilityFor(src: string, binaries: InstalledPackage[], inv: InventorySnapshot) {
-  const procs = inv.processes ?? [];
+export function firewallText(inv: InventorySnapshot): string {
   const closed = closedPortsOf(inv);
-  const ports = (inv.listeningPorts ?? []).filter((p) => p.protocol === "tcp" || !p.protocol);
-  const externalAll = ports.filter((p) => !isLoopback(p.address));
-  const isClosed = (p: { port: number; protocol?: string }) => closed.has(`${p.port}/${p.protocol ?? "tcp"}`);
-  const external = externalAll.filter((p) => !isClosed(p));
-  const blocked = externalAll.filter(isClosed);
-  const fmt = (p: { address: string; port: number; process: string }) => `${p.address}:${p.port} ${p.process}`;
-  const fw = closed.size ? [...closed].map((c) => `${c} closed by Sentinel firewall rule`).join(", ") : (inv.firewall?.available === false ? "firewall tooling unavailable; no rules" : "no Sentinel firewall rules");
-  const base = { firewall: fw, listening: externalAll.map((p) => fmt(p) + (isClosed(p) ? " (blocked by firewall)" : "")) };
-  const portsOf = (ls: typeof externalAll) => [...new Set(ls.map((p) => p.port))];
-
-  if (/^php/.test(src)) {
-    const fpmPkgs = binaries.filter((b) => /-fpm$/.test(b.name)).map((b) => b.name);
-    const modPhp = inv.packages.filter((p) => /^libapache2-mod-php/.test(p.name)).map((p) => p.name);
-    const webSapi = [...fpmPkgs, ...modPhp];
-    const fpmRunning = procs.filter((p) => /php.*fpm/.test(p.name)).map((p) => p.name);
-    const apacheRunning = modPhp.length ? procs.filter((p) => /^(apache2|httpd)$/.test(p.name)).map((p) => p.name) : [];
-    const sapiRunning = [...new Set([...fpmRunning, ...apacheRunning])];
-    const webOpen = external.filter((p) => WEB_SERVERS.test(p.process));
-    const webBlocked = blocked.filter((p) => WEB_SERVERS.test(p.process));
-    const r = (reachable: boolean | null, detail: string, exposedPorts: number[] = []) => ({ ...base, reachable, webSapi, detail, exposedPorts });
-    if (!webSapi.length) {
-      return r(false, `CLI-only: no web SAPI package installed (${binaries.map((b) => b.name).join(", ")}); PHP is not reachable from the network${externalAll.length ? "" : "; nothing listening on a non-loopback address"}`);
-    }
-    if (!procs.length) return r(null, `web SAPI installed (${webSapi.join(", ")}) but process list unavailable — reachability unknown`);
-    if (!sapiRunning.length) return r(false, `web SAPI installed (${webSapi.join(", ")}) but not running`);
-    if (!webOpen.length && webBlocked.length) {
-      return r(false, `contained: web SAPI running (${sapiRunning.join(", ")}) behind ${webBlocked.map(fmt).join(", ")}, but ${portsOf(webBlocked).map((p) => `${p}/tcp`).join(", ")} is closed by a Sentinel firewall rule — not reachable from the network (still vulnerable; upgrade to fully fix)`);
-    }
-    if (!webOpen.length) return r(false, `web SAPI running (${sapiRunning.join(", ")}) but no web server listens on a non-loopback address`);
-    return r(true, `web SAPI running (${sapiRunning.join(", ")}) behind ${webOpen.map(fmt).join(", ")} — reachable from the network`, portsOf(webOpen));
-  }
-
-  // generic: a listener owned by a process that looks like this package
-  const stem = src.replace(/[\d.\-]+$/, "").toLowerCase();
-  const owns = (p: { process: string }) => p.process.toLowerCase().includes(stem) || binaries.some((b) => p.process.toLowerCase() === b.name.toLowerCase());
-  const own = external.filter(owns);
-  if (own.length) return { ...base, reachable: true, webSapi: [], detail: `${src} process listens on ${own.map(fmt).join(", ")}`, exposedPorts: portsOf(own) };
-  if (blocked.some(owns)) return { ...base, reachable: false, webSapi: [], detail: `contained: ${src} listeners are blocked by a Sentinel firewall rule (${fw})`, exposedPorts: [] };
-  return { ...base, reachable: null, webSapi: [], detail: `no listener owned by ${src}; reachability depends on how the library is used — unknown`, exposedPorts: [] };
+  return closed.size
+    ? [...closed].map((c) => `${c} closed by Sentinel firewall rule`).join(", ")
+    : (inv.firewall?.available === false ? "firewall tooling unavailable; no rules" : "no Sentinel firewall rules");
 }
 
-function relevantConfig(src: string, inv: InventorySnapshot): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(inv.config ?? {})) {
-    if (/^php/.test(src) ? /php|nginx/i.test(k) : k.toLowerCase().includes(src.replace(/[\d.\-]+$/, "").toLowerCase())) out[k] = v;
+export interface ListenerFact { address: string; port: number; protocol: string; process: string; blocked: boolean }
+
+export function externalListeners(inv: InventorySnapshot): ListenerFact[] {
+  const closed = closedPortsOf(inv);
+  const seen = new Set<string>();
+  const out: ListenerFact[] = [];
+  for (const p of inv.listeningPorts ?? []) {
+    if (isLoopback(p.address)) continue;
+    const protocol = p.protocol ?? "tcp";
+    const k = `${p.address}:${p.port}/${protocol}:${p.process}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push({ address: p.address, port: p.port, protocol, process: p.process, blocked: closed.has(`${p.port}/${protocol}`) });
   }
-  return out;
+  return out.sort((a, b) => a.port - b.port);
+}
+
+/**
+ * Listeners whose process name obviously belongs to the source package (process name equals one of its binary
+ * package names, or contains the package-name stem). Used only to detect contradictions with Sentinel's
+ * "not reachable" conclusion — never to conclude "not reachable" by itself.
+ */
+export function obviouslyOwnedListeners(src: string, binaries: string[], inv: InventorySnapshot): ListenerFact[] {
+  const stem = src.replace(/[\d.\-]+$/, "").toLowerCase();
+  const names = new Set(binaries.map((b) => b.toLowerCase()));
+  return externalListeners(inv).filter((l) => {
+    const p = l.process.toLowerCase();
+    return names.has(p) || (stem.length >= 3 && p.includes(stem));
+  });
+}
+
+const fmtListener = (l: ListenerFact) => `${l.address}:${l.port}/${l.protocol} ${l.process}${l.blocked ? " (blocked by firewall)" : ""}`;
+
+/** Digest of the host facts that can change a verdict (cache key for the investigation). */
+function hostFactsDigest(inv: InventorySnapshot, src: string, binaries: InstalledPackage[]) {
+  return {
+    binaries: binaries.map((b) => `${b.name}=${b.version}`).sort(),
+    listeners: externalListeners(inv).map(fmtListener),
+    loopback: [...new Set((inv.listeningPorts ?? []).filter((p) => isLoopback(p.address)).map((p) => `${p.port}/${p.protocol ?? "tcp"} ${p.process}`))].sort(),
+    processes: [...new Set((inv.processes ?? []).map((p) => p.name))].sort(),
+    firewall: [...closedPortsOf(inv)].sort(),
+    config: Object.entries(inv.config ?? {}).map(([k, v]) => `${k}=${v}`).sort(),
+    src,
+  };
 }
 
 export function buildEvidence(ctx: ScanContext, c: Candidate): Evidence[] {
@@ -335,39 +357,36 @@ export function buildEvidence(ctx: ScanContext, c: Candidate): Evidence[] {
       const d = compareDebian(s.version, df.fixed);
       cmp = d < 0 ? `installed ${s.version} < fixed ${df.fixed} (older than the patched build)` : `installed ${s.version} >= fixed ${df.fixed} (patched build)`;
     }
-    const r = reachabilityFor(src, s.binaries, h.inv);
+    const ext = externalListeners(h.inv);
     out.push({
       hostId: h.id,
       hostName: h.name,
       sourcePackage: src,
       binaries: s.binaries.map((b) => b.name),
+      binaryVersions: s.binaries.map((b) => `${b.name}=${b.version}`),
       installedVersion: s.version,
       upstreamVersion: up,
       distroVerdict,
       distroFixed: df.fixed,
       installedVsFixed: cmp,
       naiveVerdict: naive,
-      reachable: r.reachable,
-      reachability: r.detail,
-      listening: r.listening,
-      firewall: r.firewall,
-      exposedPorts: r.exposedPorts,
-      webSapi: r.webSapi,
-      config: relevantConfig(src, h.inv),
+      listening: ext.map(fmtListener),
+      firewall: firewallText(h.inv),
+      closedPorts: [...closedPortsOf(h.inv)].sort(),
       inKev: c.kev,
       cvss: c.cvss,
       needsConfirmation: !!c.textOnly || distroVerdict === "unknown",
+      factsDigest: sha256(JSON.stringify(hostFactsDigest(h.inv, src, s.binaries))),
     });
   }
   return out;
 }
 
 // ---------------------------------------------------------------- g. hard rules
-export function expectedStatus(e: Evidence): { status: FindingStatus; uncertain: boolean } {
+/** Is the installed build in the vulnerable set? (distro verdict wins; unknown errs towards vulnerable) */
+export function buildVerdict(e: Evidence): { vulnerable: boolean; uncertain: boolean } {
   const vulnerable = e.distroVerdict === "vulnerable" || (e.distroVerdict === "unknown" && e.naiveVerdict !== "not_vulnerable");
-  if (!vulnerable) return { status: "not_affected", uncertain: e.distroVerdict === "unknown" };
-  if (e.reachable === false) return { status: "vulnerable_not_exposed", uncertain: e.distroVerdict === "unknown" };
-  return { status: "exposed", uncertain: e.reachable === null || e.distroVerdict === "unknown" };
+  return { vulnerable, uncertain: e.distroVerdict === "unknown" };
 }
 
 export function priorityFor(status: FindingStatus, kev: boolean): Priority {
@@ -376,16 +395,17 @@ export function priorityFor(status: FindingStatus, kev: boolean): Priority {
   return "info";
 }
 
-export function evidenceHash(e: Evidence): string {
-  return sha256(JSON.stringify(e));
+/** Cache key for a (host, CVE) verdict: deterministic facts + the profile version it was investigated against. */
+export function evidenceHash(e: Evidence, profileStamp: string | null): string {
+  return sha256(JSON.stringify({ e, profileStamp, v: 2 }));
 }
 
 /** Deterministic fallback text when the LLM is unavailable. */
-export function fallbackRationale(e: Evidence, status: FindingStatus): string {
+export function fallbackRationale(e: Evidence, status: FindingStatus, reachability: string): string {
   const lines = [
     `**${e.hostName}** has \`${e.sourcePackage}\` ${e.installedVersion} (upstream ${e.upstreamVersion}).`,
-    `Naive version check: ${e.naiveVerdict}. Distro advisory verdict: ${e.distroVerdict} — ${e.installedVsFixed}.`,
-    `Reachability: ${e.reachability}.`,
+    `Distro advisory verdict: ${e.distroVerdict} — ${e.installedVsFixed}.`,
+    `Reachability: ${reachability}.`,
   ];
   lines.push(
     status === "exposed" ? "Vulnerable build that is reachable from the network → exposed."

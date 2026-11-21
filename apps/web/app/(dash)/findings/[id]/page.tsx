@@ -12,6 +12,7 @@ import { usePoll } from "@/lib/api";
 import { groupByCve, shortVerdictReason } from "@/lib/format";
 import { fmtDate } from "@/lib/utils";
 import { HostFixProgress } from "@/components/fix-progress";
+import { InvestigationPanel } from "@/components/investigation";
 
 function isPartial(m: string, i: number): boolean {
   if (/\bpartial\b|incomplete|interim|temporar|reduces?|does not fully/i.test(m)) return true;
@@ -58,6 +59,8 @@ export default function FindingDetail({ params }: { params: Promise<{ id: string
                 <CardHeader title="Rationale" icon={<Microscope className="size-4 text-blue-400" />} sub="Evidence-based assessment by Sentinel" />
                 <div className="p-5"><Markdown>{f.rationale || "_No rationale recorded._"}</Markdown></div>
               </Card>
+
+              <InvestigationPanel finding={f} hostName={hostName(f.hostId)} />
 
               {siblings.length > 0 && siblings[0]!.findings.length > 1 && (
                 <div>

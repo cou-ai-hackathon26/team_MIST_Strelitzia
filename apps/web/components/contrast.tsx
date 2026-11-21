@@ -2,8 +2,8 @@ import Link from "next/link";
 import type { Finding, HostSummary } from "@prohori/shared";
 import { ShieldCheck } from "lucide-react";
 import { FlashOnChange } from "@/components/flash";
-import { KevBadge, StatusPill } from "@/components/ui";
-import { type CveGroup, shortVerdictReason, versionBanner } from "@/lib/format";
+import { KevBadge, PriorityBadge, StatusPill } from "@/components/ui";
+import { type CveGroup, shortVerdictReason, sortFindings, versionBanner } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { HostFixProgress } from "@/components/fix-progress";
 
@@ -11,16 +11,18 @@ import { HostFixProgress } from "@/components/fix-progress";
 /** Recent Detections: Asset | Reported version | Assessment | Rationale, per CVE. */
 export function ContrastTable({ group, hosts, compact }: { group: CveGroup; hosts: HostSummary[] | undefined; compact?: boolean }) {
   const name = (id: string) => hosts?.find((h) => h.id === id)?.name ?? id;
-  const critical = group.findings.filter((f) => f.status === "exposed").length;
+  const exposed = group.findings.filter((f) => f.status === "exposed").length;
+  const top = [...group.findings].sort(sortFindings)[0];
   return (
     <div className="overflow-hidden rounded-xl border border-line bg-panel">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-line bg-panel-2/60 px-4 py-2.5">
         <span className="font-mono text-sm font-semibold text-white">{group.cveIds.join(" + ")}</span>
+        {top && <PriorityBadge priority={top.priority} />}
         {group.inKev && <KevBadge />}
         <span className="truncate text-sm text-muted">{group.title}</span>
         <span className="ml-auto flex items-center gap-2 text-xs">
-          <span className={cn("inline-flex items-center gap-1 font-semibold", critical ? "text-red-400" : "text-emerald-300")}>
-            <ShieldCheck className="size-3.5" /> {critical} critical
+          <span className={cn("inline-flex items-center gap-1 font-semibold", exposed ? "text-red-400" : "text-emerald-300")}>
+            <ShieldCheck className="size-3.5" /> {exposed} exposed
           </span>
         </span>
       </div>

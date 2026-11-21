@@ -21,6 +21,7 @@ export function actionKind(a: Pick<ActionRecord, "type">): ActionKind {
       return "fix";
     case "nginx_block_multipart":
     case "set_php_directive":
+    case "set_config_directive":
       return "partial";
     default:
       return "other";
@@ -37,6 +38,8 @@ export function actionTitle(a: Pick<ActionRecord, "type" | "params">, hostName: 
       return `Upgrade ${Array.isArray(p.packages) ? p.packages.join(", ") : "packages"} on ${hostName}`;
     case "set_php_directive":
       return `Set ${String(p.directive)} = ${String(p.value)} (php ${String(p.sapi)}) on ${hostName}`;
+    case "set_config_directive":
+      return `Set ${String(p.directive)} = ${String(p.value)} in ${String(p.file)} on ${hostName}`;
     case "restart_service":
       return `Restart ${String(p.service)} on ${hostName}`;
     case "nginx_block_multipart":
@@ -60,6 +63,8 @@ export function actionConsequence(a: Pick<ActionRecord, "type" | "params">): str
       return "Partial mitigation — nginx rejects multipart/form-data requests (file uploads are disabled). Does not remediate the vulnerability.";
     case "set_php_directive":
       return "Partial mitigation — changes one php.ini directive and restarts that PHP SAPI. Does not remediate the vulnerability on its own.";
+    case "set_config_directive":
+      return "Partial mitigation — changes service configuration and restarts it; reversible. Does not remediate the vulnerability on its own.";
     case "restart_service":
       return "Briefly restarts the service.";
     default:

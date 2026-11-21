@@ -60,11 +60,11 @@ await check("LLM endpoint (Sentinel's model)", async () => {
 await check("Docker lab assets", async () => {
   const p = Bun.spawnSync(["docker", "ps", "--format", "{{.Names}} {{.Status}}"]);
   if (p.exitCode !== 0) throw new Error("docker is not running or not reachable");
-  const lines = p.stdout.toString().split("\n").filter((l) => /prohori-(target-[abc]|mailhog)/.test(l));
-  const need = ["target-a", "target-b", "target-c", "mailhog"];
+  const lines = p.stdout.toString().split("\n").filter((l) => /prohori-(target-[abcd]|mailhog)/.test(l));
+  const need = ["target-a", "target-b", "target-c", "target-d", "mailhog"];
   const missing = need.filter((n) => !lines.some((l) => l.includes(`prohori-${n}`) && /\bUp\b/.test(l)));
   if (missing.length) throw new Error(`not running: ${missing.join(", ")} — run: bun run targets:up`);
-  return "target-a, target-b, target-c and Mailpit are up";
+  return "target-a, target-b, target-c, target-d and Mailpit are up";
 });
 
 await check("Lab asset PHP builds", async () => {
@@ -77,6 +77,21 @@ await check("Lab asset PHP builds", async () => {
   if (!b.includes("ubuntu0.24.04")) bad.push(`bank-web-02 is on ${b || "?"} (expected the patched Ubuntu build)`);
   if (bad.length) throw new Error(`${bad.join("; ")} — use Reset Environment, or run: bun run targets:reset`);
   return `web-01 ${a} · web-02 ${b} · batch-01 ${c}`;
+});
+
+await check("Lab asset OpenSSH builds", async () => {
+  const ver = (c: string, pkg: string) =>
+    Bun.spawnSync(["docker", "exec", `prohori-${c}-1`, "dpkg-query", "-W", "-f", "${Version}", pkg]).stdout.toString().trim();
+  const VULN = "1:9.6p1-3ubuntu13";
+  const d = ver("target-d", "openssh-server"), b = ver("target-b", "openssh-server"), c = ver("target-c", "openssh-client");
+  const cServer = ver("target-c", "openssh-server");
+  const bad: string[] = [];
+  if (d !== VULN) bad.push(`bank-ssh-01 openssh-server is ${d || "?"} (expected vulnerable ${VULN})`);
+  if (c !== VULN) bad.push(`bank-batch-01 openssh-client is ${c || "?"} (expected vulnerable ${VULN})`);
+  if (cServer) bad.push(`bank-batch-01 has openssh-server ${cServer} (expected client only)`);
+  if (!b.startsWith(`${VULN}.`)) bad.push(`bank-web-02 openssh-server is ${b || "?"} (expected a patched ${VULN}.N build)`);
+  if (bad.length) throw new Error(`${bad.join("; ")} — use Reset Environment, or run: bun run targets:reset`);
+  return `ssh-01 ${d} · web-02 ${b} · batch-01 client ${c}`;
 });
 
 await check("Sentinel brain", async () => {

@@ -19,11 +19,12 @@ bun run healthcheck       # must end with "All checks passed. Ready to present."
 Then in the browser:
 
 1. Open **http://localhost:3000**, sign in as `nusrat` / `prohori-admin`.
-2. **Settings → Demonstration Controls**: PHP2Shell must be listed under **Embargoed**. If it is under **Released**, click **Reset Environment** and wait ~1 minute.
-3. **Overview**: three assets **Online**, no critical banner, *Recent Detections* empty.
-4. Open **http://localhost:8025** (Mailpit) in a second tab and clear old messages.
-5. Optional: in **Settings**, lower the scan interval to **20 s** so discovery is quicker on stage.
-6. Keep a second tab with **Approvals** open, and have the chat prompts below ready to paste.
+2. **Settings → Demonstration Controls**: PHP2Shell (and regreSSHion) must show **Embargoed**. If not, click **Reset Environment** and wait ~1 minute.
+3. **Warm Sentinel's cache (recommended):** replay PHP2Shell once, wait for the verdicts, then **Reset Environment**. The advisory analysis is cached, so the on-stage detection is faster (~60 s instead of ~2 min).
+4. **Overview**: four assets **Online**, no critical banner, *Recent Detections* empty.
+5. Open **http://localhost:8025** (Mailpit) in a second tab and clear old messages.
+6. Optional: in **Settings**, lower the scan interval to **20 s** so discovery is quicker on stage.
+7. Keep a second tab with **Approvals** open, and have the chat prompts below ready to paste.
 
 **Network:** Sentinel needs internet access for OSV.dev, CISA KEV and the LLM. Have a phone hotspot ready. Record one clean run as a backup video.
 
@@ -41,16 +42,20 @@ Point at the three asset cards and the PHP build line on each.
 
 ### Scene 2 — Sentinel discovers it (45 s)
 
-*Settings → Demonstration Controls → **Replay PHP2Shell Disclosure**, then go back to Overview.*
+*Settings → Demonstration Controls → **Replay Disclosure** on PHP2Shell, then go back to Overview.*
 
 > "We're replaying the real October 21st disclosure, with today's real data from OSV and CISA. Nobody touches Prohori from here — Sentinel picks it up on its own next scheduled scan."
 
-Within one scan interval (plus ~20–30 s of analysis):
+Within one scan interval plus Sentinel's analysis (~60 s with a warm cache, ~2 min cold):
 
 - The **Critical exposure detected on bank-web-01** banner appears.
 - **Recent Detections** shows: bank-web-01 **Exposed**, bank-batch-01 **Vulnerable · Unreachable**, bank-web-02 **Not Affected**.
 
 > "Same version number, three different realities. bank-web-02 runs Ubuntu's patched build — the fix was backported without changing the version. bank-batch-01 has the vulnerable build but only runs PHP from the command line; nothing reaches it from the network. Only bank-web-01 is an emergency."
+
+**Show the work (30 s):** click **Investigate** on the banner. Scroll through *Sentinel's Investigation*: the threat profile it derived from the advisory (complete fix, partial mitigations and their trade-offs), the preconditions with citations, and the checks it ran on bank-web-01.
+
+> "None of this is hard-coded. Sentinel read PHP's own advisory, worked out what makes this exploitable, checked those conditions on each server, and cited its evidence. Code guardrails sit on top: a patched build is always safe, and an uncited claim is never trusted."
 
 ### Scene 3 — The report (20 s)
 
@@ -96,7 +101,7 @@ Watch for *Remediation applied — Sentinel is re-assessing…*; bank-web-01 mov
 
 | Step | Typical time |
 |---|---|
-| Replay → detection | next scan interval (45 s default, 20 s recommended) + 15–35 s analysis |
+| Replay → detection | next scan interval (45 s default, 20 s recommended) + ~60 s analysis (≈2 min if the CVE was never analysed before) |
 | Approve → applied (firewall / restart) | 1–3 s |
 | Approve → applied (package upgrade) | 15–40 s |
 | Applied → re-assessed | ~10 s + scan time (15–35 s when the verdict changes) |
@@ -133,6 +138,8 @@ bun run targets:reset
 ---
 
 ## 6. Likely judge questions
+
+- **"Is this tuned to PHP2Shell?"** — No. Sentinel's prompts and scan code contain no CVE ids, products or CVE-specific mitigations (`bun run prompt-audit` enforces it). A held-out scenario, regreSSHion in OpenSSH, is detected and planned with no changes — including working around the fact that Prohori never firewalls SSH port 22. `bun run eval` scores both scenarios.
 
 - **"How is this different from Tenable or Qualys?"** — Those tools list version matches and leave triage to an analyst. Sentinel decides which matches are actually exploitable on *this* asset (distro build, network reachability, KEV status), writes the report, and drives an approved fix. It is built for organizations that cannot staff a security team.
 - **"Can the AI break production?"** — Sentinel cannot approve anything. The daemon only runs a short allow-list of reversible actions with validated parameters, and every change has a rollback.

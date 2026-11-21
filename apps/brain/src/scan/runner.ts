@@ -46,7 +46,7 @@ async function runOnce(trigger: string, actor: string) {
   const scanId = `scan_${Date.now().toString(36)}`;
   const ctx: ScanContext = {
     scanId, sessionId: `prohori-${scanId}-${crypto.randomUUID().slice(0, 8)}`, trigger, startedAt: nowIso(),
-    hosts: [], matches: new Map(), rawMatchCount: {}, details: new Map(), candidates: [], evidence: new Map(),
+    hosts: [], matches: new Map(), rawMatchCount: {}, details: new Map(), triage: new Map(), candidates: [], evidence: new Map(),
     classified: [], newFindings: [], changedFindings: [], escalated: [], reportId: null, reportsSent: 0, proposedActions: 0, notes: [],
   };
   scanContexts.set(scanId, ctx);
@@ -60,13 +60,17 @@ async function runOnce(trigger: string, actor: string) {
       throw new Error(err);
     }
     state.lastResult = { newFindings: ctx.newFindings.length, changedFindings: ctx.changedFindings.length, reportsSent: ctx.reportsSent };
-    const raw = Object.values(ctx.rawMatchCount).reduce((a, b) => a + b, 0);
+    const fresh = [...ctx.triage.entries()].filter(([, t]) => !t.cached);
+    const triaged = fresh.length
+      ? `; Sentinel triaged ${fresh.length} CVE(s) → ${fresh.filter(([, t]) => t.decision === "investigate").length} to investigate`
+      : "";
     audit(
       "scan_finished",
-      `Scan finished in ${((Date.now() - t0) / 1000).toFixed(1)}s: ${ctx.hosts.length} hosts checked, ${ctx.candidates.length} relevant CVE(s); ${ctx.newFindings.length} new, ${ctx.changedFindings.length} changed findings; ${ctx.reportsSent} report(s) sent; ${ctx.proposedActions} fix(es) proposed`,
+      `Scan finished in ${((Date.now() - t0) / 1000).toFixed(1)}s: ${ctx.hosts.length} hosts checked, ${ctx.candidates.length} relevant CVE(s)${triaged}; ${ctx.newFindings.length} new, ${ctx.changedFindings.length} changed findings; ${ctx.reportsSent} report(s) sent; ${ctx.proposedActions} fix(es) proposed`,
       {
         data: {
-          scanId, trigger, hosts: ctx.hosts.length, rawMatches: ctx.rawMatchCount, candidates: ctx.candidates.map((c) => `${c.cve} (${c.reason})`),
+          scanId, trigger, hosts: ctx.hosts.length, rawMatches: ctx.rawMatchCount, candidates: ctx.candidates.map((c) => `${c.cve} (${c.triage.decidedBy}: ${c.triage.reason})`),
+          triage: Object.fromEntries(fresh.map(([c, t]) => [c, `${t.decision} (${t.decidedBy}): ${t.reason}`])),
           newFindings: ctx.newFindings.length, changedFindings: ctx.changedFindings.length, reportsSent: ctx.reportsSent,
           reportId: ctx.reportId, proposedActions: ctx.proposedActions, notes: ctx.notes,
         },

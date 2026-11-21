@@ -7,8 +7,16 @@
 // after checking the admin session cookie. JSON in/out unless noted. Errors: { error: string } with 4xx/5xx.
 
 import type {
+  ThreatProfile,
   ActionRecord, AuditEvent, Finding, FindingStatus, HostSummary, InventorySnapshot, Report, Settings, WildCve,
 } from "./domain";
+
+export interface DemoScenario {
+  id: string;            // e.g. "php2shell"
+  title: string;         // e.g. "PHP2Shell"
+  cveIds: string[];
+  state: "embargoed" | "released";
+}
 
 export interface ScanState {
   running: boolean;
@@ -26,7 +34,13 @@ export interface StatusResponse {
   pendingActions: number;
   inKevExposed: number;           // exposed findings that are on CISA KEV
   recentEvents: AuditEvent[];     // last 15
-  demo: { replayHeld: string[]; injected: string[]; warning?: string | null }; // see POST /api/demo/inject
+  demo: {
+    replayHeld: string[];
+    injected: string[];
+    warning?: string | null;
+    /** Replayable disclosures (from env DEMO_SCENARIOS); each can be released/reset independently. */
+    scenarios: DemoScenario[];
+  }; // see POST /api/demo/inject
 }
 
 // GET /api/hosts                 -> HostSummary[]
@@ -70,8 +84,10 @@ export interface EnrollResponse {
 // Demo replay of the PHP2Shell disclosure (Oct 21 2026):
 // The brain holds back CVE ids listed in env DEMO_REPLAY_HOLD (default "CVE-2026-109618,CVE-2026-109619")
 // — scans ignore them (and their aliases, e.g. UBUNTU-CVE-*) until injected.
-// POST /api/demo/inject body: { cveIds?: string[] }  -> { injected: string[] }  (releases them; next scheduled scan finds them)
-// POST /api/demo/reset -> { ok: true; restoring: string[]; failed: string[] }
+// POST /api/demo/inject body: { scenarioId?: string; cveIds?: string[] } -> { injected: string[] }
+//   (releases that scenario's CVEs — default: all embargoed scenarios; the next scheduled scan finds them)
+// POST /api/demo/reset body: { scenarioId?: string } -> { ok: true; restoring: string[]; failed: string[] }   (default: all scenarios)
+// GET  /api/profiles/:cveId -> ThreatProfile  (Sentinel's cached advisory analysis)
 //   Rolls back every still-applied state-changing action on the servers first (upgrade, firewall, nginx block,
 //   php.ini), then re-holds the CVEs and deletes their findings/reports/open proposals.
 
@@ -94,5 +110,6 @@ export interface ChatThreadSummary {
 //   Tool calls must appear as tool parts so the UI can render them.
 
 export type {
+  ThreatProfile,
   ActionRecord, AuditEvent, Finding, HostSummary, InventorySnapshot, Report, Settings, WildCve,
 };
