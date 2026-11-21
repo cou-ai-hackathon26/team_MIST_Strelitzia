@@ -69,8 +69,6 @@ export default function OverviewPage() {
   const hostName = (id: string) => d?.hosts.find((h) => h.id === id)?.name ?? id;
   const exposedFindings = (findings.data ?? []).filter((f) => f.status === "exposed");
   const exposedHosts = [...new Set(exposedFindings.map((f) => f.hostId))];
-  const naiveTotal = d?.hosts.reduce((s, h) => s + h.rawMatchCount, 0) ?? 0;
-  const naiveHosts = d?.hosts.filter((h) => h.rawMatchCount > 0).length ?? 0;
 
   return (
     <>
@@ -100,12 +98,12 @@ export default function OverviewPage() {
             <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-red-500/50 bg-gradient-to-r from-red-950/80 to-red-950/20 px-5 py-4">
               <AlertOctagon className="size-7 shrink-0 text-red-400" />
               <div className="min-w-0 flex-1">
-                <div className="text-lg font-semibold text-white">
+                <div className="font-display text-lg text-white">
                   {exposedHosts.length === 1 ? "1 server needs emergency action: " : `${exposedHosts.length} servers need emergency action: `}
                   <span className="text-red-300">{exposedHosts.map(hostName).join(", ")}</span>
                 </div>
                 <div className="text-sm text-red-100/80">
-                  {[...new Set(exposedFindings.map((f) => f.cveId))].join(", ")} · a version-number scanner would flag {naiveHosts} server{naiveHosts === 1 ? "" : "s"} — Sentinel checked the actual builds and network exposure.
+                  {[...new Set(exposedFindings.map((f) => f.cveId))].join(", ")} · Sentinel checked the actual builds and network exposure.
                 </div>
               </div>
               {exposedFindings.some((f) => f.inKev) && <KevBadge className="text-xs" />}
@@ -121,13 +119,12 @@ export default function OverviewPage() {
             </div>
           )}
 
-          <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             <Stat label="Exposed" value={d.totals.exposed} tone={d.totals.exposed ? "text-red-400" : "text-dim"} sub="act now" />
             <Stat label="Vulnerable, not exposed" value={d.totals.vulnerable_not_exposed} tone={d.totals.vulnerable_not_exposed ? "text-amber-400" : "text-dim"} sub="upgrade, normal priority" />
             <Stat label="Not affected" value={d.totals.not_affected} tone="text-emerald-400" sub="checked and safe" />
             <Stat label="Exposed on KEV" value={d.inKevExposed} tone={d.inKevExposed ? "text-red-400" : "text-dim"} sub="exploited in the wild" />
             <Stat label="Pending approvals" value={d.pendingActions} tone={d.pendingActions ? "text-amber-300" : "text-dim"} sub={<Link className="hover:underline" href="/approvals">review →</Link>} />
-            <Stat label="Naive scanner alerts" value={naiveTotal} tone="text-slate-300" sub={`raw version matches on ${naiveHosts} hosts`} />
           </div>
 
           <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -139,7 +136,7 @@ export default function OverviewPage() {
             <section>
               <div className="mb-2 flex items-center gap-2">
                 <ScanLine className="size-4 text-blue-400" />
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted">Recent patches</h2>
+                <h2 className="font-display text-sm uppercase tracking-wider text-muted">Recent detections</h2>
               </div>
               {groups.length === 0 ? (
                 <Empty>No recent vulnerabilities yet. When a new CVE lands, this shows every affected server and Sentinel&apos;s verdict.</Empty>

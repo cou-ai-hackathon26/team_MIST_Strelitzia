@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { use } from "react";
 import type { Finding, HostSummary } from "@prohori/shared";
-import { ArrowLeft, FileText, HelpCircle, ListChecks, Microscope, ScanLine } from "lucide-react";
+import { ArrowLeft, FileText, HelpCircle, ListChecks, Microscope } from "lucide-react";
 import { FlashOnChange } from "@/components/flash";
 import { ContrastTable } from "@/components/contrast";
 import { Markdown } from "@/components/markdown";
 import { Badge, Card, CardHeader, ErrorBanner, KV, KevBadge, PriorityBadge, Skeleton, StatusPill } from "@/components/ui";
 import { usePoll } from "@/lib/api";
-import { groupByCve, shortVerdictReason, versionBanner } from "@/lib/format";
+import { groupByCve, shortVerdictReason } from "@/lib/format";
 import { fmtDate } from "@/lib/utils";
 import { HostFixProgress } from "@/components/fix-progress";
 
@@ -43,7 +43,7 @@ export default function FindingDetail({ params }: { params: Promise<{ id: string
               <Badge tone="gray">confidence: {f.confidence}</Badge>
               {f.cvss && <Badge tone="gray" className="font-mono">CVSS {f.cvss}</Badge>}
             </div>
-            <h1 className="mt-3 text-2xl font-semibold text-white">
+            <h1 className="font-display mt-3 text-2xl text-white">
               <span className="font-mono">{f.cveId}</span> on <Link href={`/hosts/${f.hostId}`} className="hover:underline">{hostName(f.hostId)}</Link>
             </h1>
             <p className="mt-1 text-muted">{f.title}</p>
@@ -54,26 +54,6 @@ export default function FindingDetail({ params }: { params: Promise<{ id: string
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
             <div className="space-y-5">
-              <Card>
-                <CardHeader title="Naive scanner vs Sentinel" icon={<ScanLine className="size-4 text-blue-400" />} />
-                <div className="grid grid-cols-2 divide-x divide-line">
-                  <div className="p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-dim">Version-number scanner</div>
-                    <div className="mt-2 text-lg font-semibold">{versionBanner(f.package)}</div>
-                    <div className={f.naiveVerdict === "vulnerable" ? "mt-1 text-xl font-bold text-red-400" : "mt-1 text-xl font-bold text-muted"}>
-                      {f.naiveVerdict === "vulnerable" ? "VULNERABLE" : f.naiveVerdict === "not_vulnerable" ? "NOT VULNERABLE" : "UNKNOWN"}
-                    </div>
-                    <div className="mt-1 text-xs text-muted">compares the upstream version number only</div>
-                  </div>
-                  <div className="p-4">
-                    <div className="text-[11px] font-semibold uppercase tracking-wider text-dim">Sentinel (distro build + exposure)</div>
-                    <div className="mt-2 font-mono text-sm">{f.package?.installedVersion ?? "—"}</div>
-                    <div className="mt-1"><StatusPill status={f.status} size="lg" /></div>
-                    <div className="mt-1 text-xs text-muted">checks the exact build, distro fixes and network reachability</div>
-                  </div>
-                </div>
-              </Card>
-
               <Card>
                 <CardHeader title="Rationale" icon={<Microscope className="size-4 text-blue-400" />} sub="Evidence-based explanation written by the agent" />
                 <div className="p-5"><Markdown>{f.rationale || "_No rationale recorded._"}</Markdown></div>

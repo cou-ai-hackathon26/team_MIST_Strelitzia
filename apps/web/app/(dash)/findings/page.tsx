@@ -64,7 +64,6 @@ export default function FindingsPage() {
                 <th className="px-4 py-2.5 font-semibold">CVE</th>
                 <th className="px-4 py-2.5 font-semibold">Host</th>
                 <th className="px-4 py-2.5 font-semibold">Package: installed → fixed</th>
-                <th className="px-4 py-2.5 font-semibold">Naive</th>
                 <th className="px-4 py-2.5 font-semibold">Updated</th>
                 <th />
               </tr>
@@ -96,9 +95,6 @@ export default function FindingsPage() {
                         <div className="font-sans text-[11px] text-dim">banner: {versionBanner(f.package)}</div>
                       </>
                     ) : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs">
-                    <span className={f.naiveVerdict === "vulnerable" ? "text-red-300" : "text-muted"}>{f.naiveVerdict.replace("_", " ")}</span>
                   </td>
                   <td className="px-4 py-2.5 text-xs text-muted">{relTime(f.updatedAt, now)}</td>
                   <td className="px-2"><Link href={`/findings/${f.id}`}><ArrowRight className="size-4 text-dim group-hover:text-fg" /></Link></td>

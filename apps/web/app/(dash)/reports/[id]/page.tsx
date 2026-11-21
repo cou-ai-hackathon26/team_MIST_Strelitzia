@@ -21,7 +21,7 @@ export default function ReportDetail({ params }: { params: Promise<{ id: string 
       ) : (
         <div className="mx-auto max-w-4xl">
           <div className="mb-4">
-            <h1 className="text-2xl font-semibold text-white">{r.title}</h1>
+            <h1 className="font-display text-2xl text-white">{r.title}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted">
               <span>{fmtDate(r.createdAt)}</span>
               {r.emailedTo.length > 0 ? (

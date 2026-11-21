@@ -35,7 +35,7 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
       ) : (
         <div className="space-y-5">
           <Card>
-            <CardHeader title={`Findings (${data.findings.length})`} sub={`naive scanner would raise ${h?.rawMatchCount ?? 0} raw alerts for this host`} />
+            <CardHeader title={`Findings (${data.findings.length})`} />
             {data.findings.length === 0 ? (
               <div className="p-4 text-sm text-muted">No findings for this host.</div>
             ) : (

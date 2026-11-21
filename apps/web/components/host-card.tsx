@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { HostDetailResponse, HostSummary } from "@prohori/shared";
-import { Cpu, Lock, Network, ScanLine, ShieldCheck } from "lucide-react";
+import { Cpu, Lock, Network } from "lucide-react";
 import { Card } from "@/components/ui";
 import { usePoll } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
@@ -23,7 +23,6 @@ export function HostCard({ host, now }: { host: HostSummary; now: number }) {
   const ports = inv?.listeningPorts.filter((p) => p.protocol === "tcp" && !["127.0.0.1", "::1"].includes(p.address)) ?? [];
   const closed = inv?.firewall?.closedPorts ?? [];
   const c = host.findingCounts;
-  const actionable = c.exposed + c.vulnerable_not_exposed;
   const online = host.status === "online";
 
   return (
@@ -90,14 +89,6 @@ export function HostCard({ host, now }: { host: HostSummary; now: number }) {
         ))}
       </div>
 
-      <div className="flex items-center justify-between gap-2 px-4 py-2.5 text-xs">
-        <span className="inline-flex items-center gap-1 text-muted" title="Raw OSV matches for this host's packages — what a version-number scanner would alert on">
-          <ScanLine className="size-3.5" /> naive scanner: <b className="text-red-300 tabular-nums">{host.rawMatchCount}</b> raw alerts
-        </span>
-        <span className="inline-flex items-center gap-1 text-muted">
-          <ShieldCheck className="size-3.5" /> Sentinel: <b className={cn("tabular-nums", c.exposed ? "text-red-400" : actionable ? "text-amber-300" : "text-emerald-300")}>{actionable}</b> to act on
-        </span>
-      </div>
     </Card>
   );
 }

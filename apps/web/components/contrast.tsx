@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import { HostFixProgress } from "@/components/fix-progress";
 
 
-/** Recent patches: Host | Version banner | Sentinel verdict | Why, per CVE. */
+/** Recent detections: Host | Version banner | Sentinel verdict | Why, per CVE. */
 export function ContrastTable({ group, hosts, compact }: { group: CveGroup; hosts: HostSummary[] | undefined; compact?: boolean }) {
   const name = (id: string) => hosts?.find((h) => h.id === id)?.name ?? id;
   const emergency = group.findings.filter((f) => f.status === "exposed").length;

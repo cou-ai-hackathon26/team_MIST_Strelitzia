@@ -33,7 +33,7 @@ function slimFinding(f: Finding) {
 
 export const listHostsTool = createTool({
   id: "listHosts",
-  description: "List all monitored hosts with online status, OS, finding counts and raw OSV match count (what a naive scanner would alert on).",
+  description: "List all monitored hosts with online status, OS, finding counts .",
   inputSchema: z.object({}),
   execute: async () => ({ hosts: listHostRows().map((r) => hostSummary(r, isOnline(r.id))) }),
 });
@@ -110,7 +110,7 @@ export const checkKevTool = createTool({
 
 export const findVulnsForPackageTool = createTool({
   id: "findVulnsForPackage",
-  description: "Query OSV live for one SOURCE package (e.g. php8.3) at the version installed on a host, in the host's distro ecosystem. Shows how many raw matches a naive scanner would report and which are KEV/critical.",
+  description: "Query OSV live for one SOURCE package (e.g. php8.3) at the version installed on a host, in the host's distro ecosystem. Shows which are KEV/critical.",
   inputSchema: z.object({ hostId: hostIdSchema, sourcePackage: z.string() }),
   execute: async ({ hostId, sourcePackage }) => {
     const h = resolveHost(hostId);

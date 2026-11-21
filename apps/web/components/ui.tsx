@@ -11,7 +11,7 @@ export function CardHeader({ title, icon, right, className, sub }: { title: Reac
   return (
     <div className={cn("flex items-center justify-between gap-3 border-b border-line px-4 py-3", className)}>
       <div className="min-w-0">
-        <div className="flex items-center gap-2 text-sm font-semibold text-fg">
+        <div className="font-display flex items-center gap-2 text-sm text-fg">
           {icon}
           {title}
         </div>
@@ -131,7 +131,7 @@ export function PageHeader({ title, sub, right, icon }: { title: React.ReactNode
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="flex items-center gap-2.5 text-2xl font-semibold tracking-tight text-fg">
+        <h1 className="font-display flex items-center gap-2.5 text-2xl text-fg">
           {icon}
           {title}
         </h1>

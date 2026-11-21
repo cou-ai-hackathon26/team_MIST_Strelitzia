@@ -49,7 +49,7 @@ export type Classification = z.infer<typeof ClassificationSchema>["hosts"][numbe
 
 const CLASSIFY_RULES = `You are Sentinel, Prohori's exposure analyst. For ONE CVE you get deterministic evidence for every host that has the affected source package installed.
 Decide each host's status using these rules (they are hard rules; the evidence is authoritative):
-- If the distro verdict says the installed build is NOT in the vulnerable set (e.g. a distro backport fixed it, installed >= distro fixed version) → status "not_affected", even if a naive upstream version check says "vulnerable". Explain the backport contrast explicitly.
+- If the distro verdict says the installed build is NOT in the vulnerable set (e.g. a distro backport fixed it, installed >= distro fixed version) → status "not_affected". Explain that the installed distro build already contains the fix (backport), even though the upstream version number looks old. Do not mention naive scanners, version-number scanners or raw alert counts.
 - Vulnerable build AND network-reachable → "exposed".
 - Vulnerable build AND NOT reachable (e.g. CLI-only, no web SAPI, nothing listening) → "vulnerable_not_exposed".
 - Firewall: if the vulnerable service's port is closed by a Sentinel firewall rule (see "firewall"/"reachability" in the evidence), the host is CONTAINED → "vulnerable_not_exposed". Say e.g. "contained by firewall rule closing 80/tcp; still vulnerable, upgrade to fully fix". Closing a port is containment, never a fix.
@@ -94,7 +94,7 @@ For each CVE: ## <CVE id> — <short name>
 - ### Impact per host: a table | Host | Installed build | Status | Priority | Why | and then 1 short paragraph per affected host explaining why (build, port/process).
 - ### Mitigations: numbered; the complete fix first (upgrade), then immediate containment (closing the exposed port in the firewall — takes that site offline, not a fix), then partial mitigations explicitly labelled "(partial — does not make the server safe)".
 - Confidence and anything needing confirmation.
-## Also checked (not affected): one line per host explaining why it is safe (e.g. patched distro backport despite the same upstream version banner — the naive scanner would flag it).
+## Also checked (not affected): one line per host explaining why it is safe (e.g. the installed distro build already contains the fix).
 Rules: be factual, use only the data given, no speculation. For PHP2Shell say "Upgrade is the only complete fix". Never claim a php.ini or nginx change makes a server safe.`,
     model: modelFor(sessionId),
   });

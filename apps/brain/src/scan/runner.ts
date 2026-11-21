@@ -63,7 +63,7 @@ async function runOnce(trigger: string, actor: string) {
     const raw = Object.values(ctx.rawMatchCount).reduce((a, b) => a + b, 0);
     audit(
       "scan_finished",
-      `Scan finished in ${((Date.now() - t0) / 1000).toFixed(1)}s: ${ctx.hosts.length} hosts, ${raw} raw OSV matches → ${ctx.candidates.length} candidate CVE(s); ${ctx.newFindings.length} new, ${ctx.changedFindings.length} changed findings; ${ctx.reportsSent} report(s) sent; ${ctx.proposedActions} fix(es) proposed`,
+      `Scan finished in ${((Date.now() - t0) / 1000).toFixed(1)}s: ${ctx.hosts.length} hosts checked, ${ctx.candidates.length} relevant CVE(s); ${ctx.newFindings.length} new, ${ctx.changedFindings.length} changed findings; ${ctx.reportsSent} report(s) sent; ${ctx.proposedActions} fix(es) proposed`,
       {
         data: {
           scanId, trigger, hosts: ctx.hosts.length, rawMatches: ctx.rawMatchCount, candidates: ctx.candidates.map((c) => `${c.cve} (${c.reason})`),
