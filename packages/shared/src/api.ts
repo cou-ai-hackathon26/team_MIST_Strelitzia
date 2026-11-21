@@ -73,6 +73,16 @@ export interface EnrollResponse {
 // POST /api/demo/inject body: { cveIds?: string[] }  -> { injected: string[] }  (releases them; next scheduled scan finds them)
 // POST /api/demo/reset                               -> { ok: true }  (re-holds them, deletes their findings/reports/actions)
 
+// GET /api/chat/threads?limit=50 -> ChatThreadSummary[]  (newest activity first; includes review threads)
+export interface ChatThreadSummary {
+  id: string;
+  title: string;            // first admin message (truncated), or "Review: <action>" for review threads
+  startedBy: string | null; // admin username, if known
+  createdAt: string;
+  updatedAt: string;        // last message
+  messageCount: number;     // admin messages sent in this thread (approx. for older threads)
+  actionId: string | null;  // set for "Review with Sentinel" threads
+}
 // GET /api/chat/threads/:threadId/messages -> UIMessage[]  (to reopen a discussion, e.g. from an action's threadId)
 // POST /api/chat
 //   body: { messages: UIMessage[]; threadId?: string; actionId?: string }

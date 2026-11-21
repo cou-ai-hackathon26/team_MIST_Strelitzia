@@ -126,6 +126,12 @@ export interface ActionRecord {
   supersededBy: string | null;  // set when a newer revision replaces this pending proposal
   rolledBackBy: string | null;
   result: { ok: boolean; diff: string; output: string } | null;
+  /**
+   * Live progress after a human decision, for the dashboard:
+   * applying / rolling_back → daemon working; rechecking → daemon reported, Sentinel re-scanning the host;
+   * done → a scan that started after the daemon's result has finished (verdicts are current). null = never started.
+   */
+  progress: { phase: "applying" | "rolling_back" | "rechecking" | "done"; since: string; resultAt: string | null } | null;
 }
 
 export interface Settings {

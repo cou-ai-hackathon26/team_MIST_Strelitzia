@@ -6,6 +6,7 @@ import { Cpu, Lock, Network, ScanLine, ShieldCheck, Wrench } from "lucide-react"
 import { Badge, Card } from "@/components/ui";
 import { usePoll } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
+import { HostFixProgress } from "@/components/fix-progress";
 
 export function HostCard({ host, now }: { host: HostSummary; now: number }) {
   // Inventory changes slowly; poll it less often than the status.
@@ -73,6 +74,7 @@ export function HostCard({ host, now }: { host: HostSummary; now: number }) {
             )}
           </div>
         )}
+        <HostFixProgress hostId={host.id} hostName={host.name} compact className="mt-2" />
       </div>
 
       <div className="mt-4 grid grid-cols-3 gap-px border-y border-line bg-line text-center">

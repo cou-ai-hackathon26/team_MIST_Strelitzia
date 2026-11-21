@@ -9,6 +9,7 @@ import { Badge, Button, Card, StatusPill } from "@/components/ui";
 import { api, refreshAllPolls, usePoll } from "@/lib/api";
 import { STATE_TONE, actionConsequence, actionKind, actionTitle } from "@/lib/actions";
 import { cn, fmtDate, relTime } from "@/lib/utils";
+import { ActionFixProgress } from "@/components/fix-progress";
 
 function DiffBlock({ diff }: { diff: string }) {
   return (
@@ -148,6 +149,7 @@ export function ActionCard({
     <Card className={cn("overflow-hidden", pending && "border-amber-500/50", a.state === "superseded" && "opacity-70", className)}>
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
         <StateBadge state={a.state} />
+        <ActionFixProgress actionId={a.id} hostName={hostName} />
         <span className="font-semibold text-white">{actionTitle(a, hostName)}</span>
         <KindBadge a={a} />
         {a.supersedes && <Badge tone="violet">revision of {a.supersedes}</Badge>}

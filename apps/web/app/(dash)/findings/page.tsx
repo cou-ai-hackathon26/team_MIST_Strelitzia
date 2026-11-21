@@ -9,6 +9,7 @@ import { Card, Empty, ErrorBanner, KevBadge, LiveTag, PageHeader, PriorityBadge,
 import { useNow, usePoll } from "@/lib/api";
 import { sortFindings, versionBanner } from "@/lib/format";
 import { cn, relTime } from "@/lib/utils";
+import { HostFixProgress } from "@/components/fix-progress";
 
 const FILTERS: (FindingStatus | "all")[] = ["all", "exposed", "vulnerable_not_exposed", "not_affected"];
 
@@ -74,6 +75,7 @@ export default function FindingsPage() {
                   <td className="px-4 py-2.5"><PriorityBadge priority={f.priority} /></td>
                   <td className="px-4 py-2.5">
                     <FlashOnChange value={f.status}><StatusPill status={f.status} /></FlashOnChange>
+                    <HostFixProgress hostId={f.hostId} hostName={hostName(f.hostId)} compact className="mt-1" />
                     {f.needsConfirmation && <div className="mt-1 inline-flex items-center gap-1 text-[11px] text-amber-300"><HelpCircle className="size-3" /> needs confirmation</div>}
                   </td>
                   <td className="px-4 py-2.5">

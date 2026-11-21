@@ -3,6 +3,7 @@ import { Cron } from "croner";
 import type { ScanState } from "@prohori/shared";
 import { audit, getSettings, nowIso } from "../db";
 import { scanContexts, scanWorkflow } from "./workflow";
+import { markRechecked } from "../actions";
 import type { ScanContext } from "./engine";
 
 const state: ScanState = { running: false, lastStartedAt: null, lastFinishedAt: null, nextRunAt: null, lastResult: null };
@@ -21,10 +22,12 @@ export function startScan(trigger: string, opts: { queueIfBusy?: boolean; actor?
     return false;
   }
   state.running = true;
-  state.lastStartedAt = nowIso();
+  const startedAt = nowIso();
+  state.lastStartedAt = startedAt;
   currentRun = runOnce(trigger, opts.actor ?? "prohori").finally(() => {
     state.running = false;
     state.lastFinishedAt = nowIso();
+    try { markRechecked(startedAt); } catch (e) { console.error("[scan] markRechecked failed", e); }
     currentRun = null;
     if (followUp) {
       const t = followUp;

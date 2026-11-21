@@ -11,6 +11,7 @@ import { Badge, Card, CardHeader, ErrorBanner, KV, KevBadge, PriorityBadge, Skel
 import { usePoll } from "@/lib/api";
 import { groupByCve, shortVerdictReason, versionBanner } from "@/lib/format";
 import { fmtDate } from "@/lib/utils";
+import { HostFixProgress } from "@/components/fix-progress";
 
 function isPartial(m: string, i: number): boolean {
   if (/\bpartial\b|incomplete|interim|temporar|reduces?|does not fully/i.test(m)) return true;
@@ -48,6 +49,7 @@ export default function FindingDetail({ params }: { params: Promise<{ id: string
             <p className="mt-1 text-muted">{f.title}</p>
             {f.aliases.length > 0 && <p className="mt-1 font-mono text-xs text-dim">aliases: {f.aliases.join(", ")}</p>}
             <p className="mt-3 text-sm text-fg">{shortVerdictReason(f)}</p>
+            <HostFixProgress hostId={f.hostId} hostName={hostName(f.hostId)} className="mt-3" />
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">

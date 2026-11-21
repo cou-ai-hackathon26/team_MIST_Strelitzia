@@ -3,12 +3,12 @@ import { handleChatStream } from "@mastra/ai-sdk";
 import { RequestContext } from "@mastra/core/request-context";
 import { createUIMessageStreamResponse } from "ai";
 import type {
-  EnrollResponse, FindingStatus, HostDetailResponse, Settings, StatusResponse, WildCve,
+  ChatThreadSummary, EnrollResponse, FindingStatus, HostDetailResponse, Settings, StatusResponse, WildCve,
 } from "@prohori/shared";
 import {
   audit, createHost, deleteAction, getAction, saveAction, deleteFindingsForCves, deleteReport, findingTotals, getFinding, getHostRow, getInventory,
   getReport, getSettings, holdState, hostSummary, listActions, listAudit, listFindings, listHostRows, listReports, saveSettings,
-  setHold,
+  setHold, touchChatThread, upsertChatThreadIfMissing, listChatThreads,
 } from "./db";
 import { env } from "./env";
 import { isOnline } from "./gateway";
@@ -79,6 +79,12 @@ async function chat(req: Request, actor: string): Promise<Response> {
   requestContext.set("threadId", threadId);
   requestContext.set("actor", actor);
   const system: string[] = [`The admin you are talking to is "${actor}". Chat thread id: ${threadId}.`];
+  {
+    const text = (Array.isArray(last?.parts) ? last.parts : []).filter((p: any) => p?.type === "text").map((p: any) => String(p.text)).join(" ").trim();
+    const reviewed = b.actionId ? getAction(String(b.actionId)) : null;
+    const title = reviewed ? `Review: ${describeAction(reviewed)}` : (text || "New conversation");
+    touchChatThread({ id: threadId, title: title.replace(/\s+/g, " ").slice(0, 90), actor, actionId: reviewed?.id ?? null });
+  }
   if (b.actionId) {
     const a = getAction(String(b.actionId));
     if (!a) throw new HttpError(404, "action not found");
@@ -110,6 +116,47 @@ async function chat(req: Request, actor: string): Promise<Response> {
     },
   });
   return withCors(createUIMessageStreamResponse({ stream: stream as any }));
+}
+
+// ---------------------------------------------------------------- chat threads
+let backfilled = false;
+async function backfillThreads() {
+  if (backfilled) return;
+  backfilled = true;
+  try {
+    const memory = await mastra.getAgent("prohori").getMemory();
+    if (!memory) return;
+    const { threads } = await memory.listThreads({ filter: { resourceId: "prohori-admin" }, perPage: 200 } as any);
+    const reviewByThread = new Map(listActions().filter((a) => a.threadId).map((a) => [a.threadId!, a]));
+    for (const t of threads) {
+      let title = "";
+      const action = reviewByThread.get(t.id) ?? null;
+      if (action) title = `Review: ${describeAction(action)}`;
+      else {
+        try {
+          const { messages } = await memory.recall({ threadId: t.id, perPage: false } as any);
+          const ui = toAISdkV5Messages(messages as any) as any[];
+          const first = ui.find((m) => m.role === "user");
+          title = (first?.parts ?? []).filter((p: any) => p?.type === "text").map((p: any) => String(p.text)).join(" ").trim();
+        } catch { /* ignore */ }
+      }
+      upsertChatThreadIfMissing({
+        id: t.id, title: (title || t.title || "Conversation").replace(/\s+/g, " ").slice(0, 90),
+        createdAt: new Date(t.createdAt).toISOString(), updatedAt: new Date(t.updatedAt).toISOString(), actionId: action?.id ?? null,
+      });
+    }
+  } catch (e) {
+    console.error("[chat] thread backfill failed", e);
+  }
+}
+
+async function chatThreads(limit: number): Promise<Response> {
+  await backfillThreads();
+  const out: ChatThreadSummary[] = listChatThreads(limit).map((r) => ({
+    id: r.id, title: r.title, startedBy: r.started_by, createdAt: r.created_at, updatedAt: r.updated_at,
+    messageCount: r.message_count, actionId: r.action_id,
+  }));
+  return json(out);
 }
 
 // ---------------------------------------------------------------- router
@@ -268,6 +315,9 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
       return json({ ok: true });
     }
     if (m === "POST" && path === "/api/chat") return await chat(req, actor);
+    if (m === "GET" && parts[0] === "chat" && parts[1] === "threads" && parts.length === 2) {
+      return await chatThreads(Math.min(200, Math.max(1, Number(url.searchParams.get("limit") ?? 50) || 50)));
+    }
     if (m === "GET" && parts[0] === "chat" && parts[1] === "threads" && parts[3] === "messages" && parts.length === 4) {
       return await threadMessages(decodeURIComponent(parts[2]!));
     }

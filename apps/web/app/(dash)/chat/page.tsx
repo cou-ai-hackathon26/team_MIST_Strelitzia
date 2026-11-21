@@ -7,6 +7,7 @@ import { DefaultChatTransport, getToolName, isToolUIPart, type UIMessage } from 
 import type { ActionRecord, Finding, HostSummary } from "@prohori/shared";
 import { Bot, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Loader2, MessageSquare, Pin, Plus, Send, Square, User, Wrench } from "lucide-react";
 import { ActionCard, LiveActionCard } from "@/components/action-card";
+import { ThreadList } from "@/components/thread-list";
 import { Markdown } from "@/components/markdown";
 import { Badge, Button, Card, PageHeader, Skeleton } from "@/components/ui";
 import { api, usePoll } from "@/lib/api";
@@ -340,7 +341,14 @@ function ChatRouter() {
         sub={actionId ? "Discuss the proposed change; approve or reject it when you're satisfied" : "Chat with the agent — tool calls are shown live as it fetches data from your servers"}
       />
       {err && <div className="mb-3 text-sm text-red-300">{err}</div>}
-      {state ? <ChatThread key={state.key} threadId={state.threadId} initial={state.initial} actionId={actionId} onNewThread={newThread} /> : <Skeleton className="h-[60vh]" />}
+      <div className="grid gap-4 lg:grid-cols-[17rem_minmax(0,1fr)]">
+        <aside className="hidden lg:block">
+          <ThreadList currentThreadId={state?.threadId ?? null} onNewThread={newThread} />
+        </aside>
+        <div className="min-w-0">
+          {state ? <ChatThread key={state.key} threadId={state.threadId} initial={state.initial} actionId={actionId} onNewThread={newThread} /> : <Skeleton className="h-[60vh]" />}
+        </div>
+      </div>
     </>
   );
 }

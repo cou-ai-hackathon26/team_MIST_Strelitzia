@@ -49,7 +49,9 @@ export function proposeAction(input: {
   // Never create a duplicate: if an identical proposal is already pending (or approved/running/applied),
   // return that one instead (and attach this chat thread if it has none).
   if (!input.supersedes) {
-    const existing = findEquivalent(input.hostId, input.type, params, ["pending", "approved", "running", "applied"]);
+    // one-off actions (restarts) only dedupe against ones that haven't run yet
+    const states = input.type === "restart_service" ? ["pending", "approved", "running"] : ["pending", "approved", "running", "applied"];
+    const existing = findEquivalent(input.hostId, input.type, params, states);
     if (existing) {
       if (!existing.threadId && input.threadId) { existing.threadId = input.threadId; saveAction(existing); }
       return existing;
@@ -73,6 +75,7 @@ export function proposeAction(input: {
     supersededBy: null,
     rolledBackBy: null,
     result: null,
+    progress: null,
   };
   saveAction(a);
   if (!input.supersedes) {
@@ -167,6 +170,21 @@ function must(id: string): ActionRecord {
   return a;
 }
 
+/**
+ * Called when a scan finishes. Actions waiting for a re-check become "done" once a scan that STARTED after the
+ * daemon's result (plus a small margin for the refreshed inventory to arrive) has finished.
+ */
+export function markRechecked(scanStartedAt: string) {
+  const started = Date.parse(scanStartedAt);
+  for (const a of listActions()) {
+    if (a.progress?.phase !== "rechecking" || !a.progress.resultAt) continue;
+    if (started >= Date.parse(a.progress.resultAt) + 2000) {
+      a.progress = { ...a.progress, phase: "done", since: nowIso() };
+      saveAction(a);
+    }
+  }
+}
+
 export interface Decision { actor: string; note?: string | null; threadId?: string | null }
 
 export function approveAction(id: string, d: Decision): ActionRecord {
@@ -192,8 +210,10 @@ export function approveAction(id: string, d: Decision): ActionRecord {
   try {
     sendAction(a.hostId, a.id, a.type, a.params);
     a.state = "running";
+    a.progress = { phase: "applying", since: nowIso(), resultAt: null };
   } catch (e) {
     a.state = "failed";
+    a.progress = { phase: "done", since: nowIso(), resultAt: null };
     a.result = { ok: false, diff: "", output: `could not send to daemon: ${(e as Error).message}` };
     audit("action_failed", `${describeAction(a)}: ${(e as Error).message}`, { hostId: a.hostId, data: { actionId: a.id } });
   }
@@ -222,6 +242,7 @@ export function rollbackAction(id: string, d: Decision): ActionRecord {
   if (!isOnline(a.hostId)) throw new HttpError(409, `${hostName(a.hostId)} is offline`);
   sendRollback(a.hostId, a.id);
   a.rolledBackBy = d.actor;
+  a.progress = { phase: "rolling_back", since: nowIso(), resultAt: null };
   saveAction(a);
   audit("action_approved", `${d.actor} requested rollback: ${describeAction(a)}${decisionSuffix(d.note, a.threadId)}`, {
     hostId: a.hostId, actor: d.actor, data: { actionId: a.id, rollback: true, note: d.note ?? null },
@@ -234,6 +255,8 @@ gatewayHooks.onActionResult = async (m) => {
   if (!a) return;
   const actor = `daemon:${a.hostId}`;
   const result = { ok: m.ok, diff: m.diff, output: m.output };
+  const at = nowIso();
+  a.progress = { phase: "rechecking", since: at, resultAt: at };
   if (m.kind === "apply") {
     a.state = m.ok ? "applied" : "failed";
     a.result = result;

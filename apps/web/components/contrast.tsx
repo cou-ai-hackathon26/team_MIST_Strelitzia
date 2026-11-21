@@ -5,6 +5,7 @@ import { FlashOnChange } from "@/components/flash";
 import { Badge, KevBadge, StatusPill } from "@/components/ui";
 import { type CveGroup, shortVerdictReason, versionBanner } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { HostFixProgress } from "@/components/fix-progress";
 
 function NaiveCell({ f }: { f: Finding }) {
   if (f.naiveVerdict === "vulnerable") {
@@ -63,6 +64,7 @@ export function ContrastTable({ group, hosts, compact }: { group: CveGroup; host
               <td className="px-4 py-2.5">
                 <FlashOnChange value={f.status}><StatusPill status={f.status} /></FlashOnChange>
                 {f.needsConfirmation && <div className="mt-1 text-[11px] text-amber-300">needs confirmation</div>}
+                <HostFixProgress hostId={f.hostId} hostName={name(f.hostId)} compact className="mt-1.5" />
               </td>
               {!compact && <td className="max-w-md px-4 py-2.5 text-xs leading-relaxed text-muted">{shortVerdictReason(f)}</td>}
             </tr>

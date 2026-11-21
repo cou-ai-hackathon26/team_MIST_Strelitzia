@@ -273,6 +273,29 @@ export function deleteReport(id: string) {
   db.query("DELETE FROM reports WHERE id = ?").run(id);
 }
 
+// ---------------- chat threads (index for the "Ask Sentinel" thread list) ----------------
+db.run(`CREATE TABLE IF NOT EXISTS chat_threads (
+  id TEXT PRIMARY KEY, title TEXT NOT NULL, started_by TEXT, created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL, message_count INTEGER NOT NULL DEFAULT 0, action_id TEXT
+)`);
+export interface ChatThreadRow { id: string; title: string; started_by: string | null; created_at: string; updated_at: string; message_count: number; action_id: string | null }
+export function touchChatThread(t: { id: string; title: string; actor: string; actionId: string | null }) {
+  const now = nowIso();
+  db.query(
+    `INSERT INTO chat_threads(id, title, started_by, created_at, updated_at, message_count, action_id) VALUES (?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at, message_count = chat_threads.message_count + 1,
+       action_id = COALESCE(chat_threads.action_id, excluded.action_id)`,
+  ).run(t.id, t.title, t.actor, now, now, t.actionId);
+}
+export function upsertChatThreadIfMissing(t: { id: string; title: string; createdAt: string; updatedAt: string; actionId: string | null }) {
+  db.query(
+    `INSERT OR IGNORE INTO chat_threads(id, title, started_by, created_at, updated_at, message_count, action_id) VALUES (?, ?, NULL, ?, ?, 0, ?)`,
+  ).run(t.id, t.title, t.createdAt, t.updatedAt, t.actionId);
+}
+export function listChatThreads(limit = 50): ChatThreadRow[] {
+  return db.query("SELECT * FROM chat_threads ORDER BY updated_at DESC LIMIT ?").all(limit) as ChatThreadRow[];
+}
+
 // ---------------- actions ----------------
 export function saveAction(a: ActionRecord) {
   db.query(
@@ -287,7 +310,7 @@ export function listActions(filter: { state?: string; hostId?: string } = {}): A
   if (filter.hostId) { where.push("host_id = ?"); args.push(filter.hostId); }
   const sql = `SELECT data FROM actions ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY created_at DESC`;
   return (db.query(sql).all(...args) as { data: string }[]).map((r) => ({
-    decidedBy: null, decisionNote: null, threadId: null, supersedes: null, supersededBy: null, rolledBackBy: null, ...JSON.parse(r.data),
+    decidedBy: null, decisionNote: null, threadId: null, supersedes: null, supersededBy: null, rolledBackBy: null, progress: null, ...JSON.parse(r.data),
   }));
 }
 export function getAction(id: string): ActionRecord | null {
@@ -295,7 +318,7 @@ export function getAction(id: string): ActionRecord | null {
   if (!r) return null;
   const a = JSON.parse(r.data);
   // normalise records created before the accountability fields existed
-  return { decidedBy: null, decisionNote: null, threadId: null, supersedes: null, supersededBy: null, rolledBackBy: null, ...a };
+  return { decidedBy: null, decisionNote: null, threadId: null, supersedes: null, supersededBy: null, rolledBackBy: null, progress: null, ...a };
 }
 export function deleteAction(id: string) {
   db.query("DELETE FROM actions WHERE id = ?").run(id);
