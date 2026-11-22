@@ -25,5 +25,5 @@ DAEMON=${PROHORI_DAEMON_BIN:-/opt/prohori/bin/prohori-daemon}
 while [ ! -f "$DAEMON" ]; do
   log "waiting for $DAEMON (build it: bun run daemon:build)"; sleep 5
 done
-log "starting prohori-daemon host=${PROHORI_HOST_ID:-?} brain=${PROHORI_BRAIN_URL:-?} tier2=${PROHORI_TIER2:-false}"
+log "starting prohori-daemon host=${PROHORI_HOST_ID:-?} brain=${PROHORI_BRAIN_URL:-?}"
 exec "$DAEMON"

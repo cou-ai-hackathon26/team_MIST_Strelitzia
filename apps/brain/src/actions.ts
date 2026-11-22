@@ -1,7 +1,7 @@
-// Tier-2 action lifecycle: propose (agent/user) → [revise in chat] → approve (human, HTTP only) → daemon →
+// Remediation action lifecycle: propose (agent/user) → [revise in chat] → approve (human, HTTP only) → daemon →
 // applied/failed → rollback. Every human decision records the actor, an optional note and the chat thread.
 import { ActionParams, type ActionRecord, type ActionType } from "@prohori/shared";
-import { audit, getAction, getHostRow, getSettings, listActions, newId, nowIso, saveAction } from "./db";
+import { audit, getAction, getHostRow, listActions, newId, nowIso, saveAction } from "./db";
 import { gatewayHooks, isOnline, requestRefresh, sendAction, sendRollback } from "./gateway";
 
 export class HttpError extends Error {
@@ -44,7 +44,6 @@ export function proposeAction(input: {
   hostId: string; findingId?: string | null; type: ActionType; params: unknown; reason: string; proposedBy: "agent" | "user";
   threadId?: string | null; supersedes?: string | null; actor?: string;
 }): ActionRecord {
-  if (!getSettings().tier2Enabled) throw new HttpError(409, "Tier 2 (fixes) is disabled in settings");
   if (!getHostRow(input.hostId)) throw new HttpError(404, `unknown host ${input.hostId}`);
   const params = validate(input.type, input.params);
   // Never create a duplicate: if an identical proposal is already pending (or approved/running/applied),
@@ -195,10 +194,8 @@ export interface Decision { actor: string; note?: string | null; threadId?: stri
 export function approveAction(id: string, d: Decision): ActionRecord {
   const a = must(id);
   if (a.state !== "pending") throw new HttpError(409, `action is ${a.state}, only pending actions can be approved`);
-  if (!getSettings().tier2Enabled) throw new HttpError(409, "Tier 2 (fixes) is disabled in settings");
   const host = getHostRow(a.hostId);
   if (!host) throw new HttpError(404, "host not found");
-  if (!host.tier2_enabled) throw new HttpError(409, `daemon on ${host.name} has Tier 2 actions disabled`);
   if (!isOnline(a.hostId)) throw new HttpError(409, `${host.name} is offline`);
   a.state = "approved";
   a.decidedAt = nowIso();

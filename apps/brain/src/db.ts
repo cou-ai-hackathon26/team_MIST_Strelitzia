@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS hosts (
   last_seen TEXT,
   os TEXT,
   daemon_version TEXT,
-  tier2_enabled INTEGER NOT NULL DEFAULT 0,
   raw_match_count INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
@@ -85,7 +84,6 @@ const DEFAULT_SETTINGS: Settings = {
   reportEmails: env.defaultReportEmails,
   scanIntervalSec: 45,
   wildRefreshSec: 900,
-  tier2Enabled: true,
 };
 
 export function getSettings(): Settings {
@@ -106,7 +104,7 @@ export function saveSettings(patch: Partial<Settings>): Settings {
 // ---------------- hosts ----------------
 interface HostRow {
   id: string; name: string; token_hash: string; last_seen: string | null; os: string | null;
-  daemon_version: string | null; tier2_enabled: number; raw_match_count: number; created_at: string;
+  daemon_version: string | null; raw_match_count: number; created_at: string;
 }
 
 export function upsertSeedHost(id: string, name: string, token: string) {
@@ -141,11 +139,10 @@ function timingSafe(a: Buffer, b: Buffer) {
   return d === 0;
 }
 
-export function updateHostMeta(id: string, patch: { lastSeen?: string; os?: string; daemonVersion?: string; tier2Enabled?: boolean; rawMatchCount?: number }) {
+export function updateHostMeta(id: string, patch: { lastSeen?: string; os?: string; daemonVersion?: string; rawMatchCount?: number }) {
   if (patch.lastSeen !== undefined) db.query("UPDATE hosts SET last_seen = ? WHERE id = ?").run(patch.lastSeen, id);
   if (patch.os !== undefined) db.query("UPDATE hosts SET os = ? WHERE id = ?").run(patch.os, id);
   if (patch.daemonVersion !== undefined) db.query("UPDATE hosts SET daemon_version = ? WHERE id = ?").run(patch.daemonVersion, id);
-  if (patch.tier2Enabled !== undefined) db.query("UPDATE hosts SET tier2_enabled = ? WHERE id = ?").run(patch.tier2Enabled ? 1 : 0, id);
   if (patch.rawMatchCount !== undefined) db.query("UPDATE hosts SET raw_match_count = ? WHERE id = ?").run(patch.rawMatchCount, id);
 }
 
@@ -162,7 +159,6 @@ export function hostSummary(row: HostRow, online: boolean): HostSummary {
     lastSeen: row.last_seen,
     os: row.os,
     daemonVersion: row.daemon_version,
-    tier2Enabled: !!row.tier2_enabled,
     findingCounts: counts,
     rawMatchCount: row.raw_match_count,
   };

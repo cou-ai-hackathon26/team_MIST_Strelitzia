@@ -13,9 +13,9 @@ try {
   process.exit(2);
 }
 setOsqueryi(cfg.osqueryi);
-const actions = new ActionRunner(cfg.tier2, cfg.stateDir);
+const actions = new ActionRunner(cfg.stateDir);
 
-log(`prohori-daemon ${DAEMON_VERSION} host=${cfg.hostId} brain=${cfg.brainUrl} tier2=${cfg.tier2} osqueryi=${cfg.osqueryi}`);
+log(`prohori-daemon ${DAEMON_VERSION} host=${cfg.hostId} brain=${cfg.brainUrl} osqueryi=${cfg.osqueryi}`);
 
 let ws: WebSocket | null = null;
 let timers: ReturnType<typeof setInterval>[] = [];
@@ -159,7 +159,6 @@ function connect() {
       token: cfg.token,
       daemonVersion: DAEMON_VERSION,
       protocolVersion: PROTOCOL_VERSION,
-      tier2Enabled: cfg.tier2,
     });
   });
   sock.addEventListener("message", (ev) => {

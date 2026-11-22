@@ -1,6 +1,6 @@
 # Prohori — Build Contracts (read this first)
 
-Prohori: an always-on agent that keeps a live inventory of an organization's servers (via a host daemon wrapping osquery), watches CVE databases, decides which servers are *actually* exposed, emails a per-server report, lets an admin chat with the agent, and (opt-in) applies human-approved fixes.
+Prohori: an always-on agent that keeps a live inventory of an organization's servers (via a host daemon wrapping osquery), watches CVE databases, decides which servers are *actually* exposed, emails a per-server report, lets an admin chat with the agent, and applies fixes only after a human approves them.
 
 **Source of truth for types:** `packages/shared/src/*` (import as `@prohori/shared`). Do not redefine these types elsewhere. If you believe a contract must change, make the smallest change in `packages/shared`, and list it explicitly in your final report.
 
@@ -81,7 +81,7 @@ Brain reachability MUST honour it: a service whose port is closed by a Prohori r
 5. Reports say "upgrade is the only complete fix" for PHP2Shell; partial mitigations are labelled partial.
 
 ## Done = demo-able
-`docker compose up` targets → `bun run brain` → `bun run web` → login → Overview shows 3 hosts online with inventory → baseline scan has no PHP2Shell (held) → click "Inject PHP2Shell" (demo panel) → within one scan interval: A exposed/critical, B not_affected, C vulnerable_not_exposed, each with rationale + naive-vs-actual contrast → report email visible in MailHog → chat "why is bank-web-02 safe?" calls tools live → (Tier 2) propose fix for A → Approve → daemon upgrades php8.3 → rescan → A not_affected → rollback works.
+`docker compose up` targets → `bun run brain` → `bun run web` → login → Overview shows 3 hosts online with inventory → baseline scan has no PHP2Shell (held) → click "Inject PHP2Shell" (demo panel) → within one scan interval: A exposed/critical, B not_affected, C vulnerable_not_exposed, each with rationale + naive-vs-actual contrast → report email visible in MailHog → chat "why is bank-web-02 safe?" calls tools live → propose fix for A → Approve → daemon upgrades php8.3 → rescan → A not_affected → rollback works.
 
 ---
 

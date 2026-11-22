@@ -322,7 +322,6 @@ const proposeFixes = createStep({
     const ctx = ctxOf(inputData.scanId);
     // Pending proposals whose finding got resolved (e.g. after an upgrade) are closed automatically.
     closeObsoleteProposals((id) => getFinding(id)?.status ?? null);
-    if (!getSettings().tier2Enabled) return inputData;
     const propose = (f: Finding, type: ActionType, params: Record<string, unknown>, reason: string) => {
       // don't re-propose what an admin rejected or revised away (rolled_back may be re-proposed)
       if (hasEquivalentAction(f.hostId, type, params, ["pending", "approved", "running", "applied", "rejected", "superseded"])) return;

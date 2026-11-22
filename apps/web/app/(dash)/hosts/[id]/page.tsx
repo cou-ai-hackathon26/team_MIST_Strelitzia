@@ -19,6 +19,7 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
   const pkgs = (inv?.packages ?? []).filter((p) => !q || `${p.name} ${p.version} ${p.source}`.toLowerCase().includes(q.toLowerCase()));
   const closedPorts = inv?.firewall?.closedPorts ?? [];
   const isBlocked = (port: number, proto: string) => closedPorts.some((r) => r.port === port && r.protocol === proto);
+  const findings = (data?.findings ?? []).filter((f) => f.status !== "not_affected").sort(sortFindings);
   const configEntries = Object.entries(inv?.config ?? {}).sort(([a], [b]) => a.localeCompare(b));
 
   return (
@@ -35,13 +36,13 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
       ) : (
         <div className="space-y-5">
           <Card>
-            <CardHeader title={`Findings (${data.findings.length})`} />
-            {data.findings.length === 0 ? (
-              <div className="p-4 text-sm text-muted">No findings for this asset.</div>
+            <CardHeader title={`Findings (${findings.length})`} />
+            {findings.length === 0 ? (
+              <div className="p-4 text-sm text-muted">No open findings for this asset.</div>
             ) : (
               <table className="w-full text-sm">
                 <tbody>
-                  {[...data.findings].sort(sortFindings).map((f) => (
+                  {findings.map((f) => (
                     <tr key={f.id} className="border-t border-line/60 first:border-0 hover:bg-panel-2/50">
                       <td className="px-4 py-2"><PriorityBadge priority={f.priority} /></td>
                       <td className="px-4 py-2"><StatusPill status={f.status} /></td>
@@ -68,7 +69,6 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
                     <KV k="Codename" v={inv.os.codename} />
                     <KV k="Platform" v={inv.os.platform} />
                     <KV k="Daemon" v={h?.daemonVersion ?? "—"} />
-                    <KV k="Tier-2 remediation" v={h?.tier2Enabled ? <Badge tone="violet">Enabled</Badge> : <Badge tone="gray">Disabled</Badge>} mono={false} />
                     <KV k="Packages" v={String(inv.packages.length)} />
                     <KV k="Processes" v={String(inv.processes.length)} />
                   </div>

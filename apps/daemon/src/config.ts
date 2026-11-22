@@ -6,12 +6,11 @@ export interface DaemonConfig {
   brainUrl: string;
   hostId: string;
   token: string;
-  tier2: boolean;
   osqueryi: string;
   stateDir: string;
 }
 
-const KEYS = ["PROHORI_BRAIN_URL", "PROHORI_HOST_ID", "PROHORI_TOKEN", "PROHORI_TIER2", "OSQUERYI", "PROHORI_STATE_DIR"] as const;
+const KEYS = ["PROHORI_BRAIN_URL", "PROHORI_HOST_ID", "PROHORI_TOKEN", "OSQUERYI", "PROHORI_STATE_DIR"] as const;
 
 /** Config: optional JSON file (PROHORI_CONFIG, same keys as the env vars), overridden by env vars. */
 export function loadConfig(): DaemonConfig {
@@ -31,7 +30,6 @@ export function loadConfig(): DaemonConfig {
     brainUrl: merged.PROHORI_BRAIN_URL!,
     hostId: merged.PROHORI_HOST_ID!,
     token: merged.PROHORI_TOKEN!,
-    tier2: (merged.PROHORI_TIER2 ?? "false").toLowerCase() === "true",
     osqueryi: merged.OSQUERYI ?? "osqueryi",
     stateDir: merged.PROHORI_STATE_DIR ?? "/var/lib/prohori",
   };

@@ -1,4 +1,4 @@
-// Tier-2 actions. Only the allowlisted templates below can run; params are re-validated locally
+// Remediation actions. Only the allowlisted templates below can run; params are re-validated locally
 // with ActionParams. Every command is an argv array (no shell). Rollback state lives on disk.
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -37,10 +37,7 @@ if ($content_type ~* "multipart/form-data") { return 415; }
 export class ActionRunner {
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(
-    private readonly tier2: boolean,
-    private readonly stateDir: string,
-  ) {}
+  constructor(private readonly stateDir: string) {}
 
   private get actionsDir() {
     return join(this.stateDir, "actions");
@@ -68,7 +65,7 @@ export class ActionRunner {
    */
   reconcileFirewall(): Promise<void> {
     return this.serial(async () => {
-      if (!this.tier2 || !existsSync(this.actionsDir)) return;
+      if (!existsSync(this.actionsDir)) return;
       const states = readdirSync(this.actionsDir)
         .filter((f) => f.endsWith(".json"))
         .map((f) => {
@@ -95,7 +92,6 @@ export class ActionRunner {
 
   apply(actionId: string, actionType: string, rawParams: unknown): Promise<ActionOutcome> {
     return this.serial(async () => {
-      if (!this.tier2) return { ok: false, diff: "", output: "tier2 disabled on this host" };
       if (!(actionType in ActionParams)) return { ok: false, diff: "", output: `unknown action type: ${actionType}` };
       const type = actionType as ActionType;
       const parsed = ActionParams[type].safeParse(rawParams);
@@ -118,7 +114,6 @@ export class ActionRunner {
 
   rollback(actionId: string): Promise<ActionOutcome> {
     return this.serial(async () => {
-      if (!this.tier2) return { ok: false, diff: "", output: "tier2 disabled on this host" };
       let path: string;
       try {
         path = this.statePath(actionId);

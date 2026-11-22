@@ -112,7 +112,7 @@ function connect(h: (typeof hosts)[number]) {
     send({ type: "inventory", reason, snapshot: h.inv });
   };
   let hb: Timer | null = null;
-  ws.onopen = () => send({ type: "hello", hostId: h.id, token: h.token, daemonVersion: "0.1.0-fake", protocolVersion: PROTOCOL_VERSION, tier2Enabled: true });
+  ws.onopen = () => send({ type: "hello", hostId: h.id, token: h.token, daemonVersion: "0.1.0-fake", protocolVersion: PROTOCOL_VERSION });
   ws.onmessage = (ev) => {
     const parsed = BrainToDaemon.safeParse(JSON.parse(String(ev.data)));
     if (!parsed.success) return console.error(`[${h.id}] bad msg`, ev.data);

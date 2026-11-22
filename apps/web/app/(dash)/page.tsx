@@ -79,11 +79,6 @@ export default function OverviewPage() {
         right={<LiveTag updatedAt={status.updatedAt} error={status.error} now={now} />}
       />
       <ErrorBanner error={status.error && `Unable to reach Sentinel: ${status.error}`} />
-      {status.data?.demo.warning && (
-        <div className="mb-4 rounded-xl border border-amber-500/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
-          <b>Demonstration environment:</b> {status.data.demo.warning} <a href="/settings" className="underline">Open demonstration controls</a>
-        </div>
-      )}
       <ErrorBanner error={scanErr} />
 
       {!d ? (

@@ -1,11 +1,10 @@
 // Demo replay: embargoed disclosures (env DEMO_SCENARIOS + DEMO_REPLAY_HOLD) that can be released/reset per scenario.
 import type { DemoScenario, Finding } from "@prohori/shared";
 import {
-  audit, deleteAction, deleteFindingsForCves, deleteReport, holdState, listActions, listAudit, listFindings, listReports, setHold,
+  audit, deleteAction, deleteFindingsForCves, deleteReport, holdState, listActions, listFindings, listReports, setHold,
 } from "./db";
 import { env } from "./env";
 import { describeAction, HttpError, rollbackAction } from "./actions";
-import { scanState } from "./scan/runner";
 
 export function scenarios(): DemoScenario[] {
   const injected = new Set(holdState().injected);
@@ -80,23 +79,4 @@ export function reset(actor: string, b: { scenarioId?: string }): { ok: true; re
     actor, data: { cveIds: ids, scenarioId: scoped?.id ?? null, findings: findingIds.size, reports, actions, restoring, failed },
   });
   return { ok: true, restoring, failed };
-}
-
-/**
- * After a release, if a full scan has finished and none of the scenario's CVEs is vulnerable anywhere, the lab assets
- * have most likely been patched by an earlier rehearsal (Reset only rolls back fixes it still has records of).
- */
-export function demoWarning(): string | null {
-  const findings = listFindings();
-  const sc = scanState();
-  const lastInject = listAudit(100, { kind: "demo_inject" }).find((e) => !/reset the demo/i.test(e.message));
-  if (!lastInject || sc.running || !sc.lastStartedAt || Date.parse(sc.lastStartedAt) < Date.parse(lastInject.at)) return null;
-  const injected = new Set(holdState().injected);
-  const groups = env.scenarios.length
-    ? env.scenarios.filter((s) => s.cveIds.some((c) => injected.has(c))).map((s) => ({ title: s.title, ids: s.cveIds.filter((c) => injected.has(c)) }))
-    : injected.size ? [{ title: [...injected].join(", "), ids: [...injected] }] : [];
-  const cold = groups.filter((g) => !findings.some((f) => g.ids.includes(f.cveId) && (f.status === "exposed" || f.status === "vulnerable_not_exposed")));
-  if (!cold.length) return null;
-  return `No asset is vulnerable to the released ${cold.map((g) => g.title).join(" / ")} CVEs — the lab assets already run patched builds, likely from an earlier rehearsal. ` +
-    "Use Reset Environment to roll back applied remediation, or run `bun run targets:reset` to rebuild the lab assets, then replay the disclosure again.";
 }

@@ -44,7 +44,7 @@ function LoginForm() {
       <p className="mt-1 text-sm text-muted">Prohori Security Operations</p>
       <form onSubmit={submit} className="mt-5 space-y-3">
         <label className="block text-xs font-medium text-muted" htmlFor="user">Username</label>
-        <Input id="user" autoFocus autoComplete="username" placeholder="e.g. rahim" value={username} onChange={(e) => setUsername(e.target.value)} />
+        <Input id="user" autoFocus autoComplete="username" placeholder="e.g. zamil" value={username} onChange={(e) => setUsername(e.target.value)} />
         <label className="block text-xs font-medium text-muted" htmlFor="pw">Password</label>
         <Input id="pw" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         {error && <p className="text-sm text-red-400">{error}</p>}

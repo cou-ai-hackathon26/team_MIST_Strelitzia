@@ -2,7 +2,7 @@
 // All routes are under /api and require header `Authorization: Bearer <BRAIN_API_TOKEN>`.
 // The web proxy also sends `X-Prohori-Actor: <admin username>` (from the session) on every request; the brain
 // records it as `actor` on audit events and as decidedBy/rolledBackBy on actions. Missing header → actor "unknown".
-// Admin accounts (MVP): env ADMIN_USERS="rahim:pass1,nusrat:pass2" checked by the web app only.
+// Admin accounts (MVP): env ADMIN_USERS="zamil:pass1,nusrat:pass2" checked by the web app only.
 // The browser never talks to the brain directly: the Next.js app proxies /api/* to the brain and adds the token,
 // after checking the admin session cookie. JSON in/out unless noted. Errors: { error: string } with 4xx/5xx.
 
@@ -37,7 +37,6 @@ export interface StatusResponse {
   demo: {
     replayHeld: string[];
     injected: string[];
-    warning?: string | null;
     /** Replayable disclosures (from env DEMO_SCENARIOS); each can be released/reset independently. */
     scenarios: DemoScenario[];
   }; // see POST /api/demo/inject

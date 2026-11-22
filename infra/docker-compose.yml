@@ -29,7 +29,6 @@ services:
       PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
       PROHORI_HOST_ID: web-a
       PROHORI_TOKEN: dev-token-a
-      PROHORI_TIER2: "true"
 
   target-b:
     <<: *target
@@ -46,7 +45,6 @@ services:
       PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
       PROHORI_HOST_ID: web-b
       PROHORI_TOKEN: dev-token-b
-      PROHORI_TIER2: "true"
 
   target-c:
     <<: *target
@@ -62,7 +60,6 @@ services:
       PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
       PROHORI_HOST_ID: batch-c
       PROHORI_TOKEN: dev-token-c
-      PROHORI_TIER2: "true"
 
   target-d:
     <<: *target
@@ -78,7 +75,6 @@ services:
       PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
       PROHORI_HOST_ID: ssh-d
       PROHORI_TOKEN: dev-token-d
-      PROHORI_TIER2: "true"
 
   mailhog:
     image: axllent/mailpit:latest

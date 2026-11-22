@@ -2,7 +2,6 @@
 //   MOCK_BRAIN_PORT=4000 bun infra/dev/mock-brain.ts
 // Scenario per host after its first inventory: query(packages) -> refresh -> (web-a, web-b) actions
 // firewall_port 80/tcp closed + nginx_block_multipart -> both rolled back after ROLLBACK_AFTER_SEC.
-// web-b has tier2 off, so it must refuse.
 // Extra commands: POST /send/<hostId> with a brain->daemon message body (id is filled in; add ?raw to skip
 // validation, to check that the daemon ignores invalid messages), e.g.
 //   curl -XPOST localhost:4000/send/web-a -d '{"type":"action","actionId":"up1","actionType":"upgrade_packages","params":{"packages":["php8.3-fpm"]}}'
@@ -86,7 +85,7 @@ Bun.serve<Data>({
           }
           ws.data.hostId = msg.hostId;
           sockets.set(msg.hostId, ws);
-          log(`<- hello ${msg.hostId} daemon=${msg.daemonVersion} proto=${msg.protocolVersion} tier2=${msg.tier2Enabled}`);
+          log(`<- hello ${msg.hostId} daemon=${msg.daemonVersion} proto=${msg.protocolVersion}`);
           send(ws, { type: "welcome", heartbeatSec: 10, inventorySec: 120 });
           break;
         case "heartbeat":

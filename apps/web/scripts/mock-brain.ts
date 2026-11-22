@@ -24,7 +24,7 @@ const SCENARIOS: Omit<DemoScenario, "state">[] = [
 ];
 
 // ---------------- state ----------------
-const settings: Settings = { reportEmails: ["it-team@bank.example"], scanIntervalSec: 45, wildRefreshSec: 900, tier2Enabled: true };
+const settings: Settings = { reportEmails: ["it-team@bank.example"], scanIntervalSec: 45, wildRefreshSec: 900 };
 const demo = { replayHeld: [] as string[], injected: [...PHP2SHELL, REGRESSHION] };
 const scenarioStates = (): DemoScenario[] =>
   SCENARIOS.map((sc) => ({ ...sc, state: sc.cveIds.every((c) => demo.injected.includes(c)) ? "released" : "embargoed" }));
@@ -84,10 +84,10 @@ function inventory(hostname: string, phpVer: string, web: boolean, ssh: { ver: s
 }
 
 const hosts: HostSummary[] = [
-  { id: "web-a", name: "bank-web-01", status: "online", lastSeen: iso(-4), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", tier2Enabled: true, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 56 },
-  { id: "web-b", name: "bank-web-02", status: "online", lastSeen: iso(-7), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", tier2Enabled: true, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 1 },
-  { id: "batch-c", name: "bank-batch-01", status: "online", lastSeen: iso(-2), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", tier2Enabled: false, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 56 },
-  { id: "ssh-d", name: "bank-ssh-01", status: "online", lastSeen: iso(-3), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", tier2Enabled: true, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 31 },
+  { id: "web-a", name: "bank-web-01", status: "online", lastSeen: iso(-4), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 56 },
+  { id: "web-b", name: "bank-web-02", status: "online", lastSeen: iso(-7), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 1 },
+  { id: "batch-c", name: "bank-batch-01", status: "online", lastSeen: iso(-2), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 56 },
+  { id: "ssh-d", name: "bank-ssh-01", status: "online", lastSeen: iso(-3), os: "Ubuntu 24.04.3 LTS", daemonVersion: "0.1.0", findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 31 },
 ];
 const inventories: Record<string, InventorySnapshot> = {
   "web-a": inventory("bank-web-01", "8.3.6-0maysync1", true, { ver: SSH_FIXED, server: false }),
@@ -405,7 +405,7 @@ function seedSsh() {
       state: "rejected",
       createdAt: iso(-600),
       decidedAt: iso(-590),
-      decidedBy: "rahim",
+      decidedBy: "zamil",
       decisionNote: "Covered by the config change action, which restarts ssh itself.",
     }),
   );
@@ -540,8 +540,8 @@ log("host_offline", "bank-batch-01 missed heartbeats", { actor: "prohori", hostI
 log("host_online", "bank-batch-01 reconnected", { actor: "daemon:batch-c", hostId: "batch-c", ago: 850 });
 log("inventory_changed", "bank-web-01 inventory changed: 1 package updated", { actor: "daemon:web-a", hostId: "web-a", ago: 840 });
 log("wild_refreshed", "CISA KEV refreshed: 2 new entries", { ago: 800 });
-log("settings_changed", "rahim changed scan interval to 45s", { actor: "rahim", ago: 700, data: { scanIntervalSec: 45 } });
-log("demo_inject", "rahim released PHP2Shell for replay (Oct 21 disclosure)", { actor: "rahim", cveId: PHP2SHELL[0], ago: 600 });
+log("settings_changed", "zamil changed scan interval to 45s", { actor: "zamil", ago: 700, data: { scanIntervalSec: 45 } });
+log("demo_inject", "zamil released PHP2Shell for replay (Oct 21 disclosure)", { actor: "zamil", cveId: PHP2SHELL[0], ago: 600 });
 log("scan_started", "Scheduled scan started", { ago: 560 });
 log("cve_discovered", "New CVE relevant to our inventory: CVE-2026-109618 (PHP2Shell, KEV)", { cveId: PHP2SHELL[0], ago: 555 });
 log("cve_discovered", "New CVE relevant to our inventory: CVE-2026-109619 (PHP2Shell, KEV)", { cveId: PHP2SHELL[1], ago: 554 });
@@ -551,7 +551,7 @@ log("finding_new", "CVE-2026-109618 on bank-web-02: not affected (patched build)
 log("scan_finished", "Scan finished: 6 new findings", { ago: 540, data: { newFindings: 6 } });
 log("report_generated", "Report generated: PHP2Shell exposure (1 exposed, 1 vulnerable, 1 safe)", { ago: 530, data: { reportId: "r-php2shell" } });
 log("report_sent", "Report emailed", { ago: 528, data: { reportId: "r-php2shell", recipients: ["it-team@bank.example"] } });
-log("login", "rahim signed in", { actor: "rahim", ago: 450 });
+log("login", "zamil signed in", { actor: "zamil", ago: 450 });
 log("action_proposed", "Prohori proposed nginx_block_multipart on bank-web-01", { hostId: "web-a", ago: 400, data: { actionId: "a-block-web-a" } });
 log("action_revised", "Prohori revised the proposal: close port 80/tcp instead of blocking multipart", { hostId: "web-a", ago: 380, data: { actionId: "a-fw-web-a", supersedes: "a-block-web-a", threadId: "t-demo-review" } });
 log("action_proposed", "Prohori proposed upgrade_packages on bank-web-01", { hostId: "web-a", ago: 370, data: { actionId: "a-upgrade-web-a" } });
@@ -583,7 +583,7 @@ function status(): StatusResponse {
     pendingActions: actions.filter((a) => a.state === "pending").length,
     inKevExposed: findings.filter((f) => f.status === "exposed" && f.inKev).length,
     recentEvents: audit.slice(0, 15),
-    demo: { ...demo, warning: null, scenarios: scenarioStates() },
+    demo: { ...demo, scenarios: scenarioStates() },
   };
 }
 
@@ -810,7 +810,7 @@ Bun.serve({
           if (!name) return err(400, "name required");
           const hostId = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
           const token = crypto.randomUUID().replaceAll("-", "");
-          hosts.push({ id: hostId, name, status: "offline", lastSeen: null, os: null, daemonVersion: null, tier2Enabled: false, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 0 });
+          hosts.push({ id: hostId, name, status: "offline", lastSeen: null, os: null, daemonVersion: null, findingCounts: { exposed: 0, vulnerable_not_exposed: 0, not_affected: 0 }, rawMatchCount: 0 });
           log("settings_changed", `${actor} enrolled host ${name}`, { actor, hostId });
           return json({ hostId, token, installCommand: `curl -fsSL http://BRAIN:4400/install.sh | sudo PROHORI_HOST_ID=${hostId} PROHORI_TOKEN=${token} sh` } satisfies EnrollResponse);
         }

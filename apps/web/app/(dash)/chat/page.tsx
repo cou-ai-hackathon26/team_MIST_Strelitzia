@@ -131,7 +131,7 @@ function ReviewBanner({ chain, hostName, threadId }: { chain: Chain; hostName: (
   const a = chain.action;
   const finding = usePoll<Finding>(a?.findingId ? `/findings/${encodeURIComponent(a.findingId)}` : null, 5000);
   return (
-    <div className="mb-3 max-h-[45vh] overflow-y-auto">
+    <div className="min-h-0 xl:order-last xl:overflow-y-auto xl:pr-1">
       <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
         <Pin className="size-3.5" /> Reviewing Proposed Action{chain.currentId && <span className="font-mono normal-case text-dim">· {chain.currentId}</span>}
       </div>
@@ -204,9 +204,15 @@ function ChatThread({ threadId, initial, actionId, onNewThread }: { threadId: st
   const chips = actionId ? REVIEW_SUGGESTIONS : SUGGESTIONS;
 
   return (
-    <div className="flex h-[calc(100vh-9.5rem)] flex-col">
+    <div
+      className={cn(
+        actionId
+          ? "grid gap-4 xl:h-[calc(100vh-9.5rem)] xl:grid-cols-[minmax(0,1fr)_minmax(22rem,28rem)]"
+          : "flex h-[calc(100vh-9.5rem)] flex-col",
+      )}
+    >
       {actionId && <ReviewBanner chain={chain} hostName={hostName} threadId={threadId} />}
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <Card className={cn("flex min-h-0 flex-col overflow-hidden", actionId ? "h-[calc(100vh-9.5rem)] xl:h-auto" : "flex-1")}>
         <div className="flex items-center gap-2 border-b border-line px-4 py-2.5 text-xs text-muted">
           <span className="font-mono">Thread {threadId}</span>
           <span className="ml-auto">{busy ? <span className="inline-flex items-center gap-1 text-blue-300"><Loader2 className="size-3 animate-spin" /> Analyzing…</span> : "Ready"}</span>

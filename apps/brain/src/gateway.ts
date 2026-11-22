@@ -81,7 +81,7 @@ export const websocketHandler = {
       if (prev && prev !== ws) { try { prev.close(4002, "replaced by new connection"); } catch {} }
       ws.data.hostId = parsed.hostId;
       conns.set(parsed.hostId, ws);
-      updateHostMeta(parsed.hostId, { daemonVersion: parsed.daemonVersion, tier2Enabled: parsed.tier2Enabled });
+      updateHostMeta(parsed.hostId, { daemonVersion: parsed.daemonVersion });
       send(ws, { id: crypto.randomUUID(), type: "welcome", heartbeatSec: TIMING.heartbeatSec, inventorySec: TIMING.inventorySec });
       markOnline(parsed.hostId);
       return;

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Tier-2 remediation allowlist. The daemon enforces this list locally and validates params itself.
+// Remediation action allowlist. The daemon enforces this list locally and validates params itself.
 // The AI may only PROPOSE these; a human approves in the dashboard.
 
 export const ActionParams = {

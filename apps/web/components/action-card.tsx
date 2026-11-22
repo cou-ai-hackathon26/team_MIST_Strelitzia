@@ -146,7 +146,7 @@ export function ActionCard({
   }
 
   return (
-    <Card className={cn("overflow-hidden", pending && "border-amber-500/50", a.state === "superseded" && "opacity-70", className)}>
+    <Card className={cn("@container overflow-hidden", pending && "border-amber-500/50", a.state === "superseded" && "opacity-70", className)}>
       <div className="flex flex-wrap items-center gap-2 border-b border-line px-4 py-3">
         <StateBadge state={a.state} />
         <ActionFixProgress actionId={a.id} hostName={hostName} />
@@ -157,7 +157,7 @@ export function ActionCard({
           {a.proposedBy === "agent" ? <Bot className="size-3.5" /> : <User className="size-3.5" />} proposed by {a.proposedBy === "agent" ? "Sentinel" : "administrator"} · {relTime(a.createdAt, Date.now())}
         </span>
       </div>
-      <div className="grid gap-4 p-4 md:grid-cols-[1fr_auto]">
+      <div className="grid gap-4 p-4 @2xl:grid-cols-[1fr_auto]">
         <div className="min-w-0 space-y-3">
           {a.state === "superseded" && (
             <div className="rounded-lg border border-line bg-bg px-3 py-2 text-xs text-muted">
@@ -216,7 +216,7 @@ export function ActionCard({
           )}
           {err && <p className="text-sm text-red-300">{err}</p>}
         </div>
-        <div className="flex flex-row gap-2 md:flex-col">
+        <div className="flex flex-row flex-wrap gap-2 @2xl:flex-col">
           {pending && mode === "list" && (
             <Link href={reviewHref}><Button variant="primary" size="lg"><MessageSquare className="size-4" /> Review with Sentinel</Button></Link>
           )}

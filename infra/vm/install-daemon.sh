@@ -1,26 +1,25 @@
 #!/usr/bin/env bash
 # Install prohori-daemon on an Ubuntu 24.04 (systemd) VM.  Run as root:
 #   sudo ./install-daemon.sh --binary ./prohori-daemon --brain-url wss://brain.example:4000/agent \
-#        --host-id web-a --token <token> [--tier2]
-# Without --tier2 the daemon is read-only (inventory + named queries).
-# With --tier2 it can run the allowlisted actions via a sudoers drop-in limited to the exact commands.
+#        --host-id web-a --token <token>
+# The daemon runs the allowlisted remediation actions via a sudoers drop-in limited to the exact commands.
+# Every action still requires human approval in the dashboard before the brain sends it.
 set -euo pipefail
 
 OSQUERY_VERSION=5.24.1
-BINARY=""; BRAIN_URL=""; HOST_ID=""; TOKEN=""; TIER2=false
+BINARY=""; BRAIN_URL=""; HOST_ID=""; TOKEN=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --binary) BINARY=$2; shift 2;;
     --brain-url) BRAIN_URL=$2; shift 2;;
     --host-id) HOST_ID=$2; shift 2;;
     --token) TOKEN=$2; shift 2;;
-    --tier2) TIER2=true; shift;;
     *) echo "unknown arg: $1" >&2; exit 2;;
   esac
 done
 [ "$(id -u)" = 0 ] || { echo "run as root" >&2; exit 1; }
 [ -f "$BINARY" ] && [ -n "$BRAIN_URL" ] && [ -n "$HOST_ID" ] && [ -n "$TOKEN" ] || {
-  echo "usage: $0 --binary FILE --brain-url URL --host-id ID --token TOKEN [--tier2]" >&2; exit 2; }
+  echo "usage: $0 --binary FILE --brain-url URL --host-id ID --token TOKEN" >&2; exit 2; }
 
 echo "== osquery ${OSQUERY_VERSION}"
 if ! command -v osqueryi >/dev/null; then
@@ -42,7 +41,6 @@ cat > /etc/prohori/daemon.json <<JSON
   "PROHORI_BRAIN_URL": "${BRAIN_URL}",
   "PROHORI_HOST_ID": "${HOST_ID}",
   "PROHORI_TOKEN": "${TOKEN}",
-  "PROHORI_TIER2": "${TIER2}",
   "OSQUERYI": "/usr/bin/osqueryi",
   "PROHORI_STATE_DIR": "/var/lib/prohori"
 }
@@ -53,21 +51,19 @@ umask 022
 SUDOERS=/etc/sudoers.d/prohori
 # Read-only part (always): the firewall inventory needs `iptables -S INPUT` (root-only).
 SUDO_RO='prohori ALL=(root) NOPASSWD: /usr/sbin/iptables -S INPUT'
-SUDO_T2=""
-if [ "$TIER2" = true ]; then
-  echo "== tier2: write access to managed config files + action allowlist"
-  # File edits (nginx snippet, php.ini) are done by the daemon itself, so grant write access to exactly those paths.
-  if [ -d /etc/nginx ]; then
-    install -d -o prohori -g root -m 0755 /etc/nginx/prohori
-    grep -rqs 'include /etc/nginx/prohori/\*.conf;' /etc/nginx/sites-enabled/ \
-      || echo "WARNING: add 'include /etc/nginx/prohori/*.conf;' inside your server block for nginx_block_multipart" >&2
-  fi
-  # set_config_directive edits exactly the CONFIG_DIRECTIVE_ALLOWLIST files in place (sshd_config: the daemon
-  # runs `sshd -t` before restarting ssh and reverts the edit if validation fails).
-  for f in /etc/php/8.3/fpm/php.ini /etc/php/8.3/cli/php.ini /etc/php/8.3/apache2/php.ini /etc/ssh/sshd_config; do
-    if [ -f "$f" ]; then chgrp prohori "$f"; chmod g+w "$f"; fi
-  done
-  SUDO_T2=$(cat <<'SUDO'
+echo "== remediation: write access to managed config files + action allowlist"
+# File edits (nginx snippet, php.ini) are done by the daemon itself, so grant write access to exactly those paths.
+if [ -d /etc/nginx ]; then
+  install -d -o prohori -g root -m 0755 /etc/nginx/prohori
+  grep -rqs 'include /etc/nginx/prohori/\*.conf;' /etc/nginx/sites-enabled/ \
+    || echo "WARNING: add 'include /etc/nginx/prohori/*.conf;' inside your server block for nginx_block_multipart" >&2
+fi
+# set_config_directive edits exactly the CONFIG_DIRECTIVE_ALLOWLIST files in place (sshd_config: the daemon
+# runs `sshd -t` before restarting ssh and reverts the edit if validation fails).
+for f in /etc/php/8.3/fpm/php.ini /etc/php/8.3/cli/php.ini /etc/php/8.3/apache2/php.ini /etc/ssh/sshd_config; do
+  if [ -f "$f" ]; then chgrp prohori "$f"; chmod g+w "$f"; fi
+done
+SUDO_ACTIONS=$(cat <<'SUDO'
 Defaults!/usr/bin/apt-get env_keep += "DEBIAN_FRONTEND"
 Cmnd_Alias PROHORI_APT = /usr/bin/apt-get update, \
   /usr/bin/apt-get install -y --only-upgrade -o Dpkg\:\:Options\:\:=--force-confold *, \
@@ -84,8 +80,7 @@ Cmnd_Alias PROHORI_FW = \
 prohori ALL=(root) NOPASSWD: PROHORI_APT, PROHORI_SVC, PROHORI_NGINX, PROHORI_CFGTEST, PROHORI_FW
 SUDO
 )
-fi
-printf '# Managed by infra/vm/install-daemon.sh. The daemon validates every parameter before calling these.\nDefaults:prohori !requiretty\n%s\n%s\n' "$SUDO_RO" "$SUDO_T2" > "$SUDOERS.tmp"
+printf '# Managed by infra/vm/install-daemon.sh. The daemon validates every parameter before calling these.\nDefaults:prohori !requiretty\n%s\n%s\n' "$SUDO_RO" "$SUDO_ACTIONS" > "$SUDOERS.tmp"
 visudo -cf "$SUDOERS.tmp"
 install -m 0440 "$SUDOERS.tmp" "$SUDOERS"; rm -f "$SUDOERS.tmp"
 

@@ -19,7 +19,6 @@ export const HelloMsg = z.object({
   token: z.string(),
   daemonVersion: z.string(),
   protocolVersion: z.literal(PROTOCOL_VERSION),
-  tier2Enabled: z.boolean(),
 });
 
 export const HeartbeatMsg = z.object({ ...base, type: z.literal("heartbeat"), at: z.string() });

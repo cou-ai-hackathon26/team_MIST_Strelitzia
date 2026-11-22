@@ -44,7 +44,7 @@ function SettingsForm() {
 
   async function save(patch?: Partial<Settings>) {
     if (!form) return;
-    const body = patch ?? { reportEmails: form.reportEmails, scanIntervalSec: form.scanIntervalSec, tier2Enabled: form.tier2Enabled };
+    const body = patch ?? { reportEmails: form.reportEmails, scanIntervalSec: form.scanIntervalSec };
     setSaving(true);
     try {
       const s = await api<Settings>("/settings", { method: "PUT", json: body });
@@ -95,18 +95,6 @@ function SettingsForm() {
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-dim">Scan Interval (Seconds)</label>
                 <Input type="number" min={10} value={form.scanIntervalSec} onChange={(e) => setForm({ ...form, scanIntervalSec: Math.max(10, Number(e.target.value) || 0) })} />
                 <div className="mt-1 text-xs text-muted">KEV feed refreshes every {form.wildRefreshSec}s</div>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-dim">Tier-2 Remediation</label>
-                <button
-                  onClick={() => setForm({ ...form, tier2Enabled: !form.tier2Enabled })}
-                  className={cn("flex h-9 w-full items-center gap-3 rounded-lg border px-3 text-sm", form.tier2Enabled ? "border-violet-500/50 bg-violet-500/10" : "border-line-2 bg-bg")}
-                >
-                  <span className={cn("relative h-5 w-9 rounded-full transition-colors", form.tier2Enabled ? "bg-violet-500" : "bg-slate-600")}>
-                    <span className={cn("absolute top-0.5 size-4 rounded-full bg-white transition-all", form.tier2Enabled ? "left-4.5" : "left-0.5")} />
-                  </span>
-                  {form.tier2Enabled ? "Enabled · Approval required" : "Disabled · Read-only"}
-                </button>
               </div>
             </div>
             <div className="flex items-center gap-3">
@@ -250,9 +238,6 @@ function DemoPanel() {
               <span className="text-xs text-muted">Rolls back every applied fix and re-embargoes all scenarios.</span>
             </div>
             <Flash msg={msg} />
-            {demo?.warning && (
-              <div className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-100">{demo.warning}</div>
-            )}
           </>
         ) : (
           <>
@@ -265,9 +250,6 @@ function DemoPanel() {
               </Button>
             </div>
             <Flash msg={msg} />
-            {demo?.warning && (
-              <div className="rounded-lg border border-amber-500/50 bg-amber-950/30 px-3 py-2 text-sm text-amber-100">{demo.warning}</div>
-            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="rounded-lg border border-line bg-bg p-3">
                 <div className="text-[11px] font-semibold uppercase tracking-wider text-dim">Embargoed</div>
@@ -295,7 +277,7 @@ function DemoPanel() {
 export default function SettingsPage() {
   return (
     <>
-      <PageHeader title="Settings" icon={<SettingsIcon className="size-6 text-blue-400" />} sub="Report recipients, scan schedule, Tier-2 remediation, asset enrollment and demonstration controls" />
+      <PageHeader title="Settings" icon={<SettingsIcon className="size-6 text-blue-400" />} sub="Report recipients, scan schedule, asset enrollment and demonstration controls" />
       <div className="grid gap-5 xl:grid-cols-2">
         <div className="space-y-5">
           <SettingsForm />

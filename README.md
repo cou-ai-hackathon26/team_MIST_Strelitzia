@@ -42,7 +42,7 @@ Every finding page shows Sentinel's full investigation: triage reason, threat pr
 - **The daemon runs only named osquery queries and allow-listed actions,** validating parameters itself. It never executes arbitrary commands, and refuses to touch port 22.
 - **Sentinel can propose but never approve.** There is no approve tool; approval is a human click in an authenticated session, recorded with the admin's name and note.
 - **Advisory text is treated as untrusted:** the AI step that reads it has no tools.
-- **Read-only by default:** remediation (Tier 2) is opt-in per asset.
+- **Every remediation requires human approval.** This cannot be disabled.
 
 ---
 
@@ -86,7 +86,7 @@ bun run web:prod              # terminal 2 — dashboard on :3000 (production bu
 bun run healthcheck
 ```
 
-Open **http://localhost:3000** and sign in as `rahim` or `nusrat` (password `prohori-admin`, set in `ADMIN_USERS`). Report emails arrive in Mailpit at **http://localhost:8025**.
+Open **http://localhost:3000** and sign in as `zamil` or `nusrat` (password `prohori-admin`, set in `ADMIN_USERS`). Report emails arrive in Mailpit at **http://localhost:8025**.
 
 > Use `bun run web:prod` for demos. The dev server (`bun run web`) works, but hot reload can loop when the dashboard is opened from Windows into WSL.
 
@@ -140,7 +140,7 @@ All settings live in the root `.env` (see [`.env.example`](.env.example) for eve
 | `SMTP_HOST`, `SMTP_PORT`, `REPORT_FROM`, `DEFAULT_REPORT_EMAILS` | Report delivery |
 | `ADMIN_USERS`, `SESSION_SECRET` | Dashboard accounts and session signing |
 
-Scan interval, report recipients and Tier-2 remediation can also be changed at runtime in **Settings**.
+Scan interval and report recipients can also be changed at runtime in **Settings**.
 
 ---
 

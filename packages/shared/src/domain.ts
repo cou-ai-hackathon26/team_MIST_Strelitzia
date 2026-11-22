@@ -10,7 +10,6 @@ export interface HostSummary {
   lastSeen: string | null; // last heartbeat/inventory
   os: string | null;       // e.g. "Ubuntu 24.04.3 LTS"
   daemonVersion: string | null;
-  tier2Enabled: boolean;   // daemon reports whether its action allowlist is enabled
   findingCounts: Record<FindingStatus, number>;
   /** Total raw OSV matches for this host's packages — what a naive scanner would alert on. */
   rawMatchCount: number;
@@ -171,7 +170,6 @@ export interface Settings {
   reportEmails: string[];
   scanIntervalSec: number;   // demo default 45
   wildRefreshSec: number;    // default 900
-  tier2Enabled: boolean;     // global switch for proposing/approving fixes
 }
 
 export interface AuditEvent {

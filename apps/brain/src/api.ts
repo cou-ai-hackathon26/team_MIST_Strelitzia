@@ -18,7 +18,7 @@ import { scanState, scheduleScans, startScan } from "./scan/runner";
 import { kevRecent } from "./vuln/kev";
 import { mastra } from "./mastra";
 import { scheduleWild } from "./wild";
-import { demoWarning, inject, reset as resetDemo, scenarios } from "./demo";
+import { inject, reset as resetDemo, scenarios } from "./demo";
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "http://localhost:3000",
@@ -60,10 +60,6 @@ function validateSettings(p: any): Partial<Settings> {
   if (p.wildRefreshSec !== undefined) {
     if (!Number.isFinite(p.wildRefreshSec) || p.wildRefreshSec < 60) throw new HttpError(400, "wildRefreshSec must be >= 60");
     out.wildRefreshSec = Math.round(p.wildRefreshSec);
-  }
-  if (p.tier2Enabled !== undefined) {
-    if (typeof p.tier2Enabled !== "boolean") throw new HttpError(400, "tier2Enabled must be boolean");
-    out.tier2Enabled = p.tier2Enabled;
   }
   return out;
 }
@@ -191,7 +187,7 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
         pendingActions: listActions({ state: "pending" }).length,
         inKevExposed: findings.filter((f) => f.status === "exposed" && f.inKev).length,
         recentEvents: listAudit(15),
-        demo: { replayHeld: hs.held, injected: hs.injected, warning: demoWarning(), scenarios: scenarios() },
+        demo: { replayHeld: hs.held, injected: hs.injected, scenarios: scenarios() },
       };
       return json(res);
     }

@@ -26,7 +26,7 @@ function safeEqual(a: string, b: string): boolean {
 const b64u = (s: string) => btoa(String.fromCharCode(...enc.encode(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const unb64u = (s: string) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0)));
 
-/** Admin accounts from ADMIN_USERS="rahim:pw,nusrat:pw"; falls back to "admin" / ADMIN_PASSWORD. */
+/** Admin accounts from ADMIN_USERS="zamil:pw,nusrat:pw"; falls back to "admin" / ADMIN_PASSWORD. */
 export function adminUsers(): Map<string, string> {
   const users = new Map<string, string>();
   for (const entry of (process.env.ADMIN_USERS ?? "").split(",")) {
