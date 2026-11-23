@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { DemoScenario, EnrollResponse, Settings, StatusResponse } from "@prohori/shared";
+import type { EnrollResponse, Settings } from "@prohori/shared";
 import { Copy, ExternalLink, FlaskConical, Mail, Plus, RotateCcw, Save, Server, Settings as SettingsIcon, Sparkles, Trash2 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, ErrorBanner, Input, PageHeader, Skeleton } from "@/components/ui";
 import { api, refreshAllPolls, usePoll } from "@/lib/api";
@@ -155,39 +155,33 @@ function EnrollForm() {
 }
 
 function DemoPanel() {
-  const status = usePoll<StatusResponse>("/status", 3000);
+  const settings = usePoll<Settings>("/settings", 3000);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useFlash();
-  const demo = status.data?.demo;
-  const scenarios: DemoScenario[] = demo?.scenarios ?? [];
-  const multi = scenarios.length > 0;
+  const enabled = settings.data?.cveScanEnabled ?? false;
 
-  async function run(kind: "inject" | "reset", scenario?: DemoScenario) {
-    if (kind === "reset") {
-      const prompt = scenario
-        ? `Reset the ${scenario.title} scenario? This rolls back related fixes still applied to the assets, re-embargoes ${scenario.cveIds.join(", ")} and clears their findings, reports and open proposals.`
-        : multi
-          ? "Reset the demonstration environment? This rolls back every fix still applied to the assets, re-embargoes every scenario and clears their findings, reports and open proposals."
-          : "Reset the demonstration environment? This rolls back every fix still applied to the assets, re-embargoes PHP2Shell and clears its findings, reports and open proposals.";
-      if (!confirm(prompt)) return;
-    }
-    setBusy(`${kind}:${scenario?.id ?? "all"}`);
+  async function allowScan() {
+    setBusy("allow");
     try {
-      if (kind === "inject") {
-        const r = await api<{ injected: string[] }>("/demo/inject", { method: "POST", json: scenario ? { scenarioId: scenario.id } : {} });
-        setMsg({ ok: true, text: `Released ${r.injected.join(", ") || "no CVEs"}. It will be detected on the next scan.` });
-      } else {
-        const r = await api<{ ok: boolean; restoring?: string[]; failed?: string[] }>(
-          "/demo/reset",
-          scenario ? { method: "POST", json: { scenarioId: scenario.id } } : { method: "POST" },
-        );
-        const parts = [scenario ? `${scenario.title} reset` : "Environment reset"];
-        if (r.restoring?.length) parts.push(`rolling back ${r.restoring.length} applied fix(es) on the assets: ${r.restoring.join("; ")} (approx. 10–60 s)`);
-        if (r.failed?.length) parts.push(`rollback failed: ${r.failed.join("; ")}`);
-        setMsg({ ok: !r.failed?.length, text: parts.join(" — ") });
-        refreshAllPolls();
-      }
-      await status.refresh();
+      await api<Settings>("/settings", { method: "PUT", json: { cveScanEnabled: true } });
+      setMsg({ ok: true, text: "CVE scanning allowed. A scan is starting now." });
+      refreshAllPolls();
+      await settings.refresh();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function reset() {
+    if (!confirm("Reset the demonstration environment? This clears all findings, reports, approvals, chats and the event log, recreates the lab servers and switches CVE scanning off. Scan caches are kept.")) return;
+    setBusy("reset");
+    try {
+      await api<{ ok: boolean }>("/demo/reset", { method: "POST" });
+      setMsg({ ok: true, text: "Environment reset. Lab servers are recreating (about 30–45 s). CVE scanning is off." });
+      refreshAllPolls();
+      await settings.refresh();
     } catch (e) {
       setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -200,72 +194,28 @@ function DemoPanel() {
       <CardHeader
         title="Demonstration Controls"
         icon={<FlaskConical className="size-4 text-violet-400" />}
-        sub={multi ? "Replay real disclosures against the lab assets. Each scenario stays embargoed until released." : "Replay the real PHP2Shell disclosure (21 Oct 2026) against the lab assets"}
+        sub="CVE scanning stays off until you allow it, so nothing is reported before the demo starts"
       />
       <div className="space-y-4 p-4">
-        {multi ? (
-          <>
-            <ul className="space-y-2">
-              {scenarios.map((sc) => {
-                const released = sc.state === "released";
-                return (
-                  <li key={sc.id} className={cn("flex flex-wrap items-center gap-3 rounded-lg border bg-bg p-3", released ? "border-violet-500/40" : "border-line")}>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-display text-sm text-white">{sc.title}</span>
-                        <Badge tone={released ? "violet" : "gray"} className="uppercase">{released ? "Released" : "Embargoed"}</Badge>
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {sc.cveIds.map((c) => <Badge key={c} tone="gray" className="font-mono">{c}</Badge>)}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button variant="danger" size="sm" onClick={() => run("inject", sc)} loading={busy === `inject:${sc.id}`} disabled={!!busy || released}>
-                        <Sparkles className="size-3.5" /> Replay Disclosure
-                      </Button>
-                      <Button variant="secondary" size="sm" onClick={() => run("reset", sc)} loading={busy === `reset:${sc.id}`} disabled={!!busy}>
-                        <RotateCcw className="size-3.5" /> Reset
-                      </Button>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button variant="secondary" onClick={() => run("reset")} loading={busy === "reset:all"} disabled={!!busy}>
-                <RotateCcw className="size-4" /> Reset Environment
-              </Button>
-              <span className="text-xs text-muted">Rolls back every applied fix and re-embargoes all scenarios.</span>
+        <div className={cn("flex flex-wrap items-center gap-3 rounded-lg border bg-bg p-3", enabled ? "border-violet-500/40" : "border-line")}>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="font-display text-sm text-white">CVE Scanning</span>
+              <Badge tone={enabled ? "violet" : "gray"} className="uppercase">{enabled ? "Allowed" : "Off"}</Badge>
             </div>
-            <Flash msg={msg} />
-          </>
-        ) : (
-          <>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="danger" size="lg" onClick={() => run("inject")} loading={busy === "inject:all"} disabled={!!busy || (demo ? demo.replayHeld.length === 0 : false)}>
-                <Sparkles className="size-4" /> Replay PHP2Shell Disclosure
-              </Button>
-              <Button variant="secondary" size="lg" onClick={() => run("reset")} loading={busy === "reset:all"} disabled={!!busy}>
-                <RotateCcw className="size-4" /> Reset Environment
-              </Button>
-            </div>
-            <Flash msg={msg} />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border border-line bg-bg p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-dim">Embargoed</div>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {demo?.replayHeld.length ? demo.replayHeld.map((c) => <Badge key={c} tone="gray" className="font-mono">{c}</Badge>) : <span className="text-sm text-muted">None</span>}
-                </div>
-              </div>
-              <div className="rounded-lg border border-line bg-bg p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wider text-dim">Released</div>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {demo?.injected.length ? demo.injected.map((c) => <Badge key={c} tone="violet" className="font-mono">{c}</Badge>) : <span className="text-sm text-muted">None</span>}
-                </div>
-              </div>
-            </div>
-          </>
-        )}
+            <div className="mt-1 text-xs text-muted">Allowing it scans every known CVE against the assets.</div>
+          </div>
+          <Button variant="danger" onClick={allowScan} loading={busy === "allow"} disabled={!!busy || enabled}>
+            <Sparkles className="size-4" /> Allow CVE Scan
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="secondary" onClick={reset} loading={busy === "reset"} disabled={!!busy}>
+            <RotateCcw className="size-4" /> Reset Environment
+          </Button>
+          <span className="text-xs text-muted">Clears everything, recreates the lab servers and turns CVE scanning off.</span>
+        </div>
+        <Flash msg={msg} />
         <a href="http://127.0.0.1:8025" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm text-blue-400 hover:underline">
           <Mail className="size-4" /> Open Mailbox (Mailpit) · http://127.0.0.1:8025 <ExternalLink className="size-3.5" />
         </a>

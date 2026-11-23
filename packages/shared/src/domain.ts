@@ -170,6 +170,7 @@ export interface Settings {
   reportEmails: string[];
   scanIntervalSec: number;   // demo default 45
   wildRefreshSec: number;    // default 900
+  cveScanEnabled: boolean;   // demo gate: no CVE scanning/findings until switched on (reset switches it off)
 }
 
 export interface AuditEvent {

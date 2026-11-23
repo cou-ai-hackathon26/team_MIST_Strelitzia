@@ -22,10 +22,12 @@ function label(p: InProgress, hostName: string): { text: string; tone: string; s
 function Chip({ p, hostName, compact, className }: { p: InProgress; hostName: string; compact?: boolean; className?: string }) {
   const l = label(p, hostName);
   const Icon = l.spin === "loader" ? Loader2 : RefreshCw;
+  // Compact (table/card) chips drop the long package description so they can't stretch the column; the full text stays in the tooltip.
+  const shown = compact ? l.text.replace(/^(Applying remediation|Rolling back): .*…$/, "$1…").replace("Remediation applied — Sentinel is re-assessing…", "Applied — re-assessing…").replace("Rolled back — Sentinel is re-assessing…", "Rolled back — re-assessing…") : l.text;
   return (
-    <div className={cn("inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs", l.tone, className)} title={l.text}>
+    <div className={cn("inline-flex max-w-full items-center whitespace-nowrap gap-1.5 rounded-md border px-2 py-1 text-xs", l.tone, className)} title={l.text}>
       <Icon className="size-3.5 shrink-0 animate-spin" />
-      <span className={cn(compact && "truncate")}>{l.text}</span>
+      <span className={cn(compact && "truncate")}>{shown}</span>
     </div>
   );
 }

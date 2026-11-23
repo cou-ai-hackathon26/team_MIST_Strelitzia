@@ -61,6 +61,10 @@ function validateSettings(p: any): Partial<Settings> {
     if (!Number.isFinite(p.wildRefreshSec) || p.wildRefreshSec < 60) throw new HttpError(400, "wildRefreshSec must be >= 60");
     out.wildRefreshSec = Math.round(p.wildRefreshSec);
   }
+  if (p.cveScanEnabled !== undefined) {
+    if (typeof p.cveScanEnabled !== "boolean") throw new HttpError(400, "cveScanEnabled must be a boolean");
+    out.cveScanEnabled = p.cveScanEnabled;
+  }
   return out;
 }
 
@@ -244,6 +248,7 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
         audit("settings_changed", `${actor} updated settings: ${Object.entries(patch).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(", ") || "nothing"}`, { actor, data: patch as Record<string, unknown> });
         if (after.scanIntervalSec !== before.scanIntervalSec) scheduleScans();
         if (after.wildRefreshSec !== before.wildRefreshSec) scheduleWild();
+        if (after.cveScanEnabled && !before.cveScanEnabled) startScan(`CVE scanning enabled by ${actor}`, { actor, queueIfBusy: true });
         return json(after);
       }
     }

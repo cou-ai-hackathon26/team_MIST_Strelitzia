@@ -84,6 +84,7 @@ const DEFAULT_SETTINGS: Settings = {
   reportEmails: env.defaultReportEmails,
   scanIntervalSec: 45,
   wildRefreshSec: 900,
+  cveScanEnabled: false,
 };
 
 export function getSettings(): Settings {
@@ -265,6 +266,11 @@ export function getReport(id: string): Report | null {
   const r = db.query("SELECT data FROM reports WHERE id = ?").get(id) as { data: string } | null;
   return r ? JSON.parse(r.data) : null;
 }
+/** Full demo reset: drop all findings, reports, actions, chat threads and the audit log. Keeps OSV/KEV caches, triage decisions and threat profiles. */
+export function wipeOperationalState() {
+  for (const t of ["findings", "reports", "actions", "chat_threads", "audit_log"]) db.run(`DELETE FROM ${t}`);
+}
+
 export function deleteReport(id: string) {
   db.query("DELETE FROM reports WHERE id = ?").run(id);
 }

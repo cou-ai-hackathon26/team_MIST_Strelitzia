@@ -48,6 +48,8 @@ export const env = {
   scenarios,
   /** Every embargoed CVE: DEMO_REPLAY_HOLD ∪ all scenario CVEs. */
   replayHold: [...new Set([...csvIds(process.env.DEMO_REPLAY_HOLD ?? ""), ...scenarios.flatMap((s) => s.cveIds)])],
+  /** Permanently suppressed CVEs (never scanned/reported): DEMO_IGNORE_CVES="CVE-…,CVE-…". */
+  ignoreCves: csvIds(process.env.DEMO_IGNORE_CVES ?? ""),
   smtpHost: process.env.SMTP_HOST ?? "127.0.0.1",
   smtpPort: Number(process.env.SMTP_PORT ?? 1025),
   reportFrom: process.env.REPORT_FROM ?? "prohori@localhost",

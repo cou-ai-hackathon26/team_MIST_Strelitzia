@@ -1,5 +1,6 @@
 // Deterministic scan logic (data gathering, evidence, hard rules). AI steps live in ./ai.ts.
 import type { Finding, FindingStatus, InstalledPackage, InventorySnapshot, Investigation, Priority, ThreatProfile } from "@prohori/shared";
+import { env } from "../env";
 import { getFindingByKey, getInventory, holdState, listHostRows, sha256, updateHostMeta } from "../db";
 import { inKev, kevEntry } from "../vuln/kev";
 import {
@@ -109,7 +110,7 @@ export interface ScanContext {
 
 // ---------------------------------------------------------------- hold
 export function heldSet(): Set<string> {
-  return new Set(holdState().held.map((s) => s.toUpperCase()));
+  return new Set(env.ignoreCves.map((s) => s.toUpperCase()));
 }
 export function isHeldVuln(v: OsvVuln | null, id: string, held: Set<string>): boolean {
   if (!held.size) return false;

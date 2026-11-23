@@ -17,6 +17,7 @@ export function scanState(): ScanState {
 
 /** Starts a scan unless one is running. Returns whether it started. */
 export function startScan(trigger: string, opts: { queueIfBusy?: boolean; actor?: string } = {}): boolean {
+  if (!getSettings().cveScanEnabled) return false; // demo gate: CVE scanning is off until allowed in Settings
   if (state.running) {
     if (opts.queueIfBusy) followUp = trigger;
     return false;

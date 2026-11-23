@@ -1,8 +1,9 @@
 // Demo replay: embargoed disclosures (env DEMO_SCENARIOS + DEMO_REPLAY_HOLD) that can be released/reset per scenario.
 import type { DemoScenario, Finding } from "@prohori/shared";
 import {
-  audit, deleteAction, deleteFindingsForCves, deleteReport, holdState, listActions, listFindings, listReports, setHold,
+  audit, deleteAction, deleteFindingsForCves, deleteReport, holdState, listActions, saveSettings, wipeOperationalState, listFindings, listReports, setHold,
 } from "./db";
+import { resolve } from "node:path";
 import { env } from "./env";
 import { describeAction, HttpError, rollbackAction } from "./actions";
 
@@ -42,7 +43,23 @@ export function inject(actor: string, b: { scenarioId?: string; cveIds?: string[
 const REVERTIBLE = new Set(["upgrade_packages", "firewall_port", "nginx_block_multipart", "set_php_directive", "set_config_directive"]);
 
 /** Reset one scenario (or everything): roll back its still-applied actions, re-embargo, clear findings/reports/proposals. */
+const COMPOSE = resolve(import.meta.dir, "../../../infra/docker-compose.yml");
+
+/** Full reset (no scenario): wipe everything operational and recreate the lab containers; caches (OSV, KEV, triage, threat profiles) are kept. */
+function fullReset(actor: string): { ok: true; restoring: string[]; failed: string[] } {
+  setHold(env.replayHold, "held");
+  saveSettings({ cveScanEnabled: false });
+  wipeOperationalState();
+  audit("demo_inject", `${who(actor)} reset the demonstration environment: cleared all findings, reports, approvals, chats and the event log; recreating the lab servers (scan caches kept)`, { actor, data: { cveIds: env.replayHold, full: true } });
+  const proc = Bun.spawn(["docker", "compose", "-f", COMPOSE, "up", "-d", "--force-recreate", "target-a", "target-b", "target-c", "target-d"], { stdout: "ignore", stderr: "pipe" });
+  proc.exited.then(async (code) => {
+    if (code !== 0) audit("demo_inject", `Lab server recreation failed (exit ${code}): ${(await new Response(proc.stderr).text()).slice(-300)}`, { actor });
+  });
+  return { ok: true, restoring: ["lab servers recreating from clean images"], failed: [] };
+}
+
 export function reset(actor: string, b: { scenarioId?: string }): { ok: true; restoring: string[]; failed: string[] } {
+  if (!b.scenarioId) return fullReset(actor);
   const scoped = b.scenarioId ? scenarioOrThrow(b.scenarioId) : null;
   const ids = scoped ? scoped.cveIds : env.replayHold;
   const scenarioFindingIds = new Set(listFindings().filter((f: Finding) => ids.includes(f.cveId)).map((f) => f.id));
