@@ -12,6 +12,10 @@ ARG PHP_BUILD=8.3.6-0maysync1
 ARG SSH=none
 ARG SSH_BUILD=
 ARG OSQUERY_VERSION=5.24.1
+# Superseded Ubuntu builds disappear from the live archive; set e.g. 20261101T000000Z to install the pinned
+# PHP_BUILD from snapshot.ubuntu.com. Sources are pointed back at the live archive before the image is finished,
+# so the upgrade_packages action can still reach the newer (fixed) build at runtime.
+ARG APT_SNAPSHOT=
 
 ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
 
@@ -20,7 +24,13 @@ ENV DEBIAN_FRONTEND=noninteractive TZ=Etc/UTC
 RUN set -eux; \
     rm -f /etc/apt/apt.conf.d/docker-clean; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates curl procps iproute2 tzdata iptables; \
+    apt-get install -y --no-install-recommends ca-certificates; \
+    if [ -n "$APT_SNAPSHOT" ]; then \
+      cp /etc/apt/sources.list.d/ubuntu.sources /tmp/ubuntu.sources.live; \
+      sed -i -E "s#https?://(archive|security)\.ubuntu\.com/ubuntu/?#https://snapshot.ubuntu.com/ubuntu/${APT_SNAPSHOT}#" /etc/apt/sources.list.d/ubuntu.sources; \
+      apt-get update; \
+    fi; \
+    apt-get install -y --no-install-recommends curl procps iproute2 tzdata iptables; \
     curl -fsSL -o /tmp/osquery.deb "https://github.com/osquery/osquery/releases/download/${OSQUERY_VERSION}/osquery_${OSQUERY_VERSION}-1.linux_amd64.deb"; \
     apt-get install -y /tmp/osquery.deb; rm -f /tmp/osquery.deb; \
     if [ "$ROLE" = "web" ]; then \
@@ -37,6 +47,10 @@ RUN set -eux; \
       PKGS="$PKGS openssh-client${V}"; \
     fi; \
     if [ -n "$PKGS" ]; then apt-get install -y --no-install-recommends $PKGS; fi; \
+    if [ -n "$APT_SNAPSHOT" ]; then \
+      cp /tmp/ubuntu.sources.live /etc/apt/sources.list.d/ubuntu.sources; rm -f /tmp/ubuntu.sources.live; \
+      apt-get update; \
+    fi; \
     apt-get purge -y unattended-upgrades 2>/dev/null || true; \
     rm -rf /var/cache/apt/archives/*.deb; \
     mkdir -p /var/lib/prohori/actions; \

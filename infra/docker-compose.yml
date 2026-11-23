@@ -35,7 +35,8 @@ services:
     build:
       context: ./targets
       # SSH: openssh-server at the latest noble-security build (patched), sshd on :22
-      args: { ROLE: web, PHP_BUILD: "8.3.6-0ubuntu0.24.04.13", SSH: server, SSH_BUILD: "" }
+      # .13 is superseded in the live archive, so it is installed from a dated snapshot (APT_SNAPSHOT, see Dockerfile)
+      args: { ROLE: web, PHP_BUILD: "8.3.6-0ubuntu0.24.04.13", APT_SNAPSHOT: "20261101T000000Z", SSH: server, SSH_BUILD: "" }
     image: prohori-target-b
     hostname: bank-web-02
     ports: ["8082:80"]
