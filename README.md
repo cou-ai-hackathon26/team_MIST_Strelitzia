@@ -1,6 +1,6 @@
 # Prohori
 
-**Agentic exposure management for organizations without a security team.**
+**An Agentic AI Sentinel for immediate triage and response to cyber threats.**
 
 Prohori keeps a live inventory of every server, watches vulnerability intelligence (OSV.dev, CISA KEV), and uses **Sentinel**, its AI security threat responder, to decide which servers are *actually* exposed to a new CVE — not just which ones report a matching version number. Sentinel emails the security team an incident report, discusses remediation with admins in chat, and applies only allow-listed, human-approved fixes through a hardened host daemon.
 
