@@ -24,9 +24,10 @@ const VECTOR_LABEL: Record<ThreatProfile["attackVector"], string> = {
 const normRef = (r: string) => r.trim().toUpperCase();
 
 /** GET /api/profiles/:cveId once per CVE; 404 means Sentinel has not analysed the advisory (yet). */
-function useThreatProfile(cveId: string) {
+function useThreatProfile(cveId: string | null) {
   const [state, setState] = useState<{ cveId: string; profile: ThreatProfile | null; missing: boolean; error: string | null } | null>(null);
   useEffect(() => {
+    if (!cveId) return;
     let live = true;
     api<ThreatProfile>(`/profiles/${encodeURIComponent(cveId)}`)
       .then((p) => live && setState({ cveId, profile: p, missing: false, error: null }))
@@ -37,6 +38,7 @@ function useThreatProfile(cveId: string) {
       });
     return () => { live = false; };
   }, [cveId]);
+  if (!cveId) return { cveId: "", profile: null, missing: true, error: null };
   return state?.cveId === cveId ? state : null;
 }
 
@@ -73,9 +75,15 @@ const RESULT_META: Record<Precondition["result"], { label: string; icon: React.R
   unknown: { label: "Unknown", icon: <HelpCircle className="size-4 text-amber-400" />, tone: "amber", row: "border-amber-500/30" },
 };
 
-function ThreatProfileSection({ cveId, fallback }: { cveId: string; fallback: Investigation["profile"] | undefined }) {
+function FetchedThreatProfile({ cveId, fallback }: { cveId: string | null; fallback: Investigation["profile"] | undefined }) {
   const st = useThreatProfile(cveId);
   if (!st) return <Skeleton className="h-28" />;
+  return <ThreatProfileSection profile={st.profile} error={st.error} fallback={fallback} />;
+}
+
+/** Renders a ThreatProfile (or the investigation's slim profile as a fallback). */
+export function ThreatProfileSection({ profile, error, fallback }: { profile: ThreatProfile | null; error?: string | null; fallback?: Investigation["profile"] | undefined }) {
+  const st = { profile, error: error ?? null };
   const p = st.profile;
   if (!p) {
     if (fallback) {
@@ -137,9 +145,27 @@ function ThreatProfileSection({ cveId, fallback }: { cveId: string; fallback: In
   );
 }
 
-/** "Sentinel's Investigation": triage → threat profile → precondition checks → tool steps → conclusion → plan. */
-export function InvestigationPanel({ finding, hostName }: { finding: Finding; hostName: string }) {
-  const inv = finding.investigation;
+/**
+ * "Sentinel's Investigation": triage → threat profile → precondition checks → tool steps → conclusion → plan.
+ * Pass `finding` (finding page), or `investigation` + `cveId` (+ optional `profile`) for other sources such as an
+ * advisory judgment's host. `showProfile={false}` hides the threat-profile section (when the page shows it once already).
+ */
+export function InvestigationPanel({
+  finding, investigation, cveId, profile, hostName, showProfile = true, idPrefix = "", emptyText = "No investigation recorded for this finding.", sub,
+}: {
+  finding?: Finding;
+  investigation?: Investigation | null;
+  cveId?: string | null;
+  profile?: ThreatProfile | null;
+  hostName: string;
+  showProfile?: boolean;
+  idPrefix?: string;
+  emptyText?: string;
+  sub?: string;
+}) {
+  const inv = finding ? finding.investigation : investigation ?? null;
+  const profileCve = finding ? finding.cveId : cveId ?? null;
+  const stepId = (r: string) => `inv-step-${idPrefix ? `${idPrefix}-` : ""}${r}`;
   const [hovered, setHovered] = useState<string | null>(null);
   const [pinned, setPinned] = useState<string | null>(null);
   const active = hovered ?? pinned;
@@ -148,7 +174,7 @@ export function InvestigationPanel({ finding, hostName }: { finding: Finding; ho
     <CardHeader
       title="Sentinel's Investigation"
       icon={<Bot className="size-4 text-violet-400" />}
-      sub="How Sentinel reached this verdict: advisory analysis, checks run on the asset and code guardrails"
+      sub={sub ?? "How Sentinel reached this verdict: advisory analysis, checks run on the asset and code guardrails"}
     />
   );
 
@@ -157,7 +183,7 @@ export function InvestigationPanel({ finding, hostName }: { finding: Finding; ho
       <Card>
         {header}
         <div className="flex items-center gap-2 px-4 py-6 text-sm text-muted">
-          <CircleDashed className="size-4 text-dim" /> No investigation recorded for this finding.
+          <CircleDashed className="size-4 text-dim" /> {emptyText}
         </div>
       </Card>
     );
@@ -179,7 +205,7 @@ export function InvestigationPanel({ finding, hostName }: { finding: Finding; ho
         onBlur={() => setHovered(null)}
         onClick={() => {
           setPinned((p) => (p === r ? null : r));
-          document.getElementById(`inv-step-${r}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          document.getElementById(stepId(r))?.scrollIntoView({ behavior: "smooth", block: "nearest" });
         }}
         className={cn(
           "rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none transition-colors",
@@ -212,12 +238,18 @@ export function InvestigationPanel({ finding, hostName }: { finding: Finding; ho
         </section>
 
         {/* Threat profile */}
-        <section className="p-4">
-          <SectionTitle right={<span className="inline-flex items-center gap-1 text-[11px] text-dim"><ScrollText className="size-3" /> Derived from the advisory</span>}>
-            Threat Profile
-          </SectionTitle>
-          <ThreatProfileSection cveId={finding.cveId} fallback={inv.profile} />
-        </section>
+        {showProfile && (
+          <section className="p-4">
+            <SectionTitle right={<span className="inline-flex items-center gap-1 text-[11px] text-dim"><ScrollText className="size-3" /> Derived from the advisory</span>}>
+              Threat Profile
+            </SectionTitle>
+            {profile !== undefined ? (
+              <ThreatProfileSection profile={profile} fallback={inv.profile} />
+            ) : (
+              <FetchedThreatProfile cveId={profileCve} fallback={inv.profile} />
+            )}
+          </section>
+        )}
 
         {/* Preconditions */}
         <section className="p-4">
@@ -268,7 +300,7 @@ export function InvestigationPanel({ finding, hostName }: { finding: Finding; ho
                 return (
                   <li
                     key={`${r}-${i}`}
-                    id={`inv-step-${r}`}
+                    id={stepId(r)}
                     onMouseEnter={() => setHovered(r)}
                     onMouseLeave={() => setHovered(null)}
                     className={cn(

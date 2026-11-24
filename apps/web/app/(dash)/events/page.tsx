@@ -14,6 +14,7 @@ const KIND_GROUPS: { label: string; kinds: AuditEvent["kind"][] }[] = [
   { label: "Vulnerabilities", kinds: ["cve_discovered", "vulnerable_detected", "finding_new", "finding_changed"] },
   { label: "Reports", kinds: ["report_generated", "report_sent"] },
   { label: "Actions", kinds: ["action_proposed", "action_revised", "action_approved", "action_rejected", "action_applied", "action_failed", "action_rolled_back"] },
+  { label: "Advisory Judgments", kinds: ["judgment_requested", "judgment_done", "judgment_tracked"] },
   { label: "Scans", kinds: ["scan_started", "scan_finished", "wild_refreshed"] },
   { label: "Assets", kinds: ["host_online", "host_offline", "inventory_changed"] },
   { label: "Administration", kinds: ["login", "settings_changed", "demo_inject", "error"] },
@@ -33,6 +34,7 @@ function Details({ e }: { e: AuditEvent }) {
   const thread = eventThreadId(e);
   const reportId = str(d.reportId);
   const actionId = str(d.actionId);
+  const judgmentId = str(d.judgmentId) ?? (typeof d.id === "string" && d.id.startsWith("jdg_") ? d.id : null);
   const rest = Object.fromEntries(Object.entries(d).filter(([k]) => !["note", "decisionNote", "recipients", "emailedTo", "to", "threadId"].includes(k)));
   return (
     <div className="mt-1 space-y-1">
@@ -40,6 +42,7 @@ function Details({ e }: { e: AuditEvent }) {
       {note && <div className="text-xs italic text-fg">“{note}”</div>}
       <div className="flex flex-wrap gap-3 text-xs">
         {thread && <Link href={`/chat?thread=${encodeURIComponent(thread)}${actionId ? `&actionId=${encodeURIComponent(actionId)}` : ""}`} className="inline-flex items-center gap-1 text-blue-400 hover:underline"><MessageSquare className="size-3" /> View conversation</Link>}
+        {judgmentId && <Link href={`/judgments/${encodeURIComponent(judgmentId)}`} className="text-blue-400 hover:underline">Open judgment</Link>}
         {reportId && <Link href={`/reports/${reportId}`} className="text-blue-400 hover:underline">Open report</Link>}
         {actionId && !thread && <Link href="/approvals" className="text-blue-400 hover:underline">View approvals</Link>}
       </div>

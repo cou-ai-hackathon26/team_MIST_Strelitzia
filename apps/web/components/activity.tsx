@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { AuditEvent } from "@prohori/shared";
 import {
   AlertTriangle, Bot, Bug, CheckCircle2, CircleUser, FilePlus2, LogIn, Mail, MessageSquare, Play, Power, RefreshCw, Server,
-  Settings, ShieldAlert, Siren, Sparkles, Undo2, Wrench, XCircle, GitBranch,
+  Settings, ShieldAlert, Siren, Sparkles, Undo2, Wrench, XCircle, GitBranch, Scale, ListPlus,
 } from "lucide-react";
 import { EVENT_TONE, actorKind, actorLabel } from "@/lib/format";
 import { cn, relTime } from "@/lib/utils";
@@ -31,6 +31,9 @@ export const EVENT_ICON: Partial<Record<AuditEvent["kind"], typeof Bug>> = {
   wild_refreshed: RefreshCw,
   login: LogIn,
   error: AlertTriangle,
+  judgment_requested: Scale,
+  judgment_done: Scale,
+  judgment_tracked: ListPlus,
 };
 
 export function ActorChip({ actor }: { actor: string | undefined }) {

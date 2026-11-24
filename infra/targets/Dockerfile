@@ -5,12 +5,16 @@
 #   PHP_BUILD  -> exact Ubuntu build of every php8.3-* package (web/batch)
 #   SSH        -> none | client (openssh-client only) | server (openssh-server + sshd on :22)
 #   SSH_BUILD  -> exact Ubuntu build of the openssh-* packages; empty = latest available (noble-security)
+#   NGINXWEBUI -> version of the nginxWebUI LAB STUB package to install (empty = none): a local .deb named
+#                 "nginxwebui" with a login-page-only HTTP service on :8080 (no command execution), so advisory
+#                 judgments of nginxWebUI CVEs have a realistic package + listener to find.
 FROM ubuntu:24.04
 
 ARG ROLE=web
 ARG PHP_BUILD=8.3.6-0maysync1
 ARG SSH=none
 ARG SSH_BUILD=
+ARG NGINXWEBUI=
 ARG OSQUERY_VERSION=5.24.1
 # Superseded Ubuntu builds disappear from the live archive; set e.g. 20261101T000000Z to install the pinned
 # PHP_BUILD from snapshot.ubuntu.com. Sources are pointed back at the live archive before the image is finished,
@@ -69,6 +73,19 @@ RUN set -eux; for ini in /etc/php/8.3/*/php.ini; do \
     done
 
 COPY site/ /opt/prohori-site/
+COPY nginxwebui/ /opt/prohori-nginxwebui/
+RUN set -eux; \
+    if [ -n "$NGINXWEBUI" ]; then \
+      P=/tmp/nginxwebui-pkg; mkdir -p $P/DEBIAN $P/opt/nginxwebui $P/etc/init.d $P/etc/nginxwebui; \
+      sed "s/__VERSION__/${NGINXWEBUI}/" /opt/prohori-nginxwebui/control > $P/DEBIAN/control; \
+      install -m 0755 /opt/prohori-nginxwebui/nginxwebui $P/opt/nginxwebui/nginxwebui; \
+      sed -i "s/^my \$VERSION = .*/my \$VERSION = \"${NGINXWEBUI}\";/" $P/opt/nginxwebui/nginxwebui; \
+      install -m 0755 /opt/prohori-nginxwebui/nginxwebui.init $P/etc/init.d/nginxwebui; \
+      install -m 0644 /opt/prohori-nginxwebui/application.properties $P/etc/nginxwebui/application.properties; \
+      dpkg-deb --build --root-owner-group $P /tmp/nginxwebui.deb; dpkg -i /tmp/nginxwebui.deb; rm -rf $P /tmp/nginxwebui.deb; \
+      dpkg -l nginxwebui | awk '/^ii/{print $2, $3}'; \
+    fi; \
+    rm -rf /opt/prohori-nginxwebui
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN set -eux; chmod +x /usr/local/bin/entrypoint.sh; \
     if [ "$ROLE" = "web" ]; then \

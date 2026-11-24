@@ -7,11 +7,13 @@ import { DefaultChatTransport, getToolName, isToolUIPart, type UIMessage } from 
 import type { ActionRecord, Finding, HostSummary } from "@prohori/shared";
 import { Bot, CheckCircle2, ChevronDown, ChevronRight, CircleAlert, Loader2, MessageSquare, Pin, Plus, Send, Square, User, Wrench } from "lucide-react";
 import { ActionCard, LiveActionCard } from "@/components/action-card";
+import { JudgmentCard } from "@/components/judgment-card";
 import { ThreadList } from "@/components/thread-list";
 import { Markdown } from "@/components/markdown";
 import { Badge, Button, Card, PageHeader, Skeleton } from "@/components/ui";
 import { api, usePoll } from "@/lib/api";
 import { extractAction } from "@/lib/actions";
+import { extractJudgmentRef } from "@/lib/judgments";
 import { cn } from "@/lib/utils";
 
 const SUGGESTIONS = [
@@ -98,11 +100,14 @@ function Message({ m, hostName, threadId }: { m: UIMessage; hostName: (id: strin
           if (p.type === "reasoning") return <div key={i} className="my-1 border-l-2 border-line-2 pl-3 text-xs italic text-dim">{p.text}</div>;
           if (isToolUIPart(p)) {
             // proposeFix / reviseProposal / getAction (or any tool returning an ActionRecord) render as an action card.
-            const action = p.state === "output-available" ? extractAction(p.output) : null;
+            // judgeAdvisory / getJudgment (any tool returning { id: "jdg_…" }) render as a live judgment card.
+            const judgment = p.state === "output-available" ? extractJudgmentRef(p.output) : null;
+            const action = p.state === "output-available" && !judgment ? extractAction(p.output) : null;
             return (
               <div key={p.toolCallId}>
                 <ToolCard part={p} />
                 {action && <div className="my-2"><LiveActionCard initial={action} hostName={hostName(action.hostId)} threadId={threadId} /></div>}
+                {judgment && <div className="my-2"><JudgmentCard initial={judgment} /></div>}
               </div>
             );
           }

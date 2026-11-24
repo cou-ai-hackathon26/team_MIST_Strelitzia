@@ -94,7 +94,7 @@ async function handle(raw: string) {
       log(`rejected by brain: ${msg.reason}`);
       process.exit(1);
     case "query": {
-      log(`query ${msg.name}${msg.params?.path ? ` ${JSON.stringify(msg.params.path)}` : ""} (request ${msg.requestId})`);
+      log(`query ${msg.name}${msg.params?.path ? ` ${JSON.stringify(msg.params.path)}` : ""}${msg.params?.package ? ` ${JSON.stringify(msg.params.package)}` : ""} (request ${msg.requestId})`);
       try {
         const rows = await runNamedQuery(msg.name, msg.params ?? {});
         send({ type: "query_result", requestId: msg.requestId, ok: true, rows });

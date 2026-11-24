@@ -40,7 +40,7 @@ The package-version check is already done by code (you are told whether the inst
 Method:
 1. Call getHostFacts first: installed binary packages of the affected source package, non-loopback listeners and their processes, loopback listeners, running processes, firewall, collected config.
 2. Work out which installed binary package(s) actually provide the vulnerable component described in the profile, and whether that program is running. A component can be reachable directly (its own process listens on a non-loopback address) or indirectly (a network-facing front-end process hands requests to it, e.g. through a local socket or loopback port — check config files of the front-end if needed).
-3. Use runHostQuery for anything you cannot see in the facts: "services" (which services run), "config_file" with params {"path": "..."} for allowed config files, "listening_ports", "processes", "firewall_rules", "packages".
+3. Use runHostQuery for anything you cannot see in the facts: "services" (which services run), "config_file" with params {"path": "..."} for allowed config files, "listening_ports", "processes", "firewall_rules", "packages", and "package_files" with params {"package": "<installed binary package>"} which lists the files that package ships — use it to check whether the vulnerable module/plugin/component is actually installed (e.g. whether a plugin directory contains the vulnerable plugin).
 4. Firewall: a port listed as closed by a Sentinel firewall rule is NOT reachable from the network; a host whose only exposure is through firewalled ports is contained (not reachable), but still vulnerable.
 5. Precondition results: "met" means the exploit condition HOLDS on this host (bad), "not_met" means it does not hold (good).
 6. Stop when the preconditions are answered (at most ${MAX_STEPS} tool calls). Then write short notes: for each precondition met/not met/unknown with the step refs (S1, S2, …) returned by the tools, and whether the component is reachable.
@@ -75,7 +75,7 @@ function summarizeRows(name: string, params: Record<string, string>, r: Awaited<
   return clip(`${name}${params.path ? ` ${params.path}` : ""}: ${r.rows.length} row(s) (${r.source === "live" ? "live" : "stored inventory"})${sample ? ` — ${sample}` : ""}`, 400);
 }
 
-function makeTools(hostId: string, sourcePackage: string, rec: Recorded) {
+function makeTools(hostId: string, sourcePackage: string, rec: Recorded, own: { cveId: string; profile: ThreatProfile }) {
   const record = (tool: string, input: Record<string, unknown>, result: unknown, summary: string) => {
     const ref = `S${rec.steps.length + 1}`;
     rec.steps.push({ tool, input, summary, ref });
@@ -99,7 +99,7 @@ function makeTools(hostId: string, sourcePackage: string, rec: Recorded) {
     }),
     runHostQuery: createTool({
       id: "runHostQuery",
-      description: `Run one named read-only query live on the host (falls back to the stored inventory if the daemon cannot answer). Names: ${QUERY_NAMES.join(", ")}. "config_file" needs params {"path": "<file>"} where the path matches one of: ${CONFIG_PATHS.join(", ")}. "services" lists services and whether they run.`,
+      description: `Run one named read-only query live on the host (falls back to the stored inventory if the daemon cannot answer). Names: ${QUERY_NAMES.join(", ")}. "config_file" needs params {"path": "<file>"} where the path matches one of: ${CONFIG_PATHS.join(", ")}. "services" lists services and whether they run. "package_files" needs params {"package": "<installed binary package>"} and lists the files it ships (is the vulnerable module/plugin actually installed?).`,
       inputSchema: z.object({ hostId: z.string(), name: z.enum(QUERY_NAMES), params: z.record(z.string(), z.string()).optional() }),
       execute: async ({ hostId: h, name, params }) => {
         const g = hostGuard(h) ?? budget();
@@ -117,7 +117,8 @@ function makeTools(hostId: string, sourcePackage: string, rec: Recorded) {
       execute: async ({ cveId }) => {
         const g = budget();
         if (g) return g;
-        const p = getProfile(cveId);
+        // the candidate's own profile is in memory (a judgment never writes the per-CVE cache)
+        const p = cveId.trim().toUpperCase() === own.cveId.toUpperCase() ? own.profile : getProfile(cveId);
         const result = p ?? { error: "no profile cached for this CVE" };
         return { ref: record("getThreatProfile", { cveId }, result, p ? clip(`${p.component}; vector ${p.attackVector}; ${p.preconditions.length} preconditions`, 300) : "no profile"), ...result };
       },
@@ -125,18 +126,26 @@ function makeTools(hostId: string, sourcePackage: string, rec: Recorded) {
   };
 }
 
+/** The build verdict is authoritative only when a distro record decided it; advisory-only verdicts rest on upstream
+ *  version numbers (the distro may have backported a fix). */
+function buildCheckLine(e: Evidence): string {
+  return e.fixSource === "advisory_only"
+    ? `Build check (code, from upstream version numbers only): the installed build is treated as VULNERABLE (${e.installedVsFixed}). No distribution record covers it, so a distro backport is not confirmed.`
+    : `Build check (code, authoritative): the installed build is VULNERABLE (${e.installedVsFixed}).`;
+}
+
 function profilePrompt(p: ThreatProfile) {
   return JSON.stringify({ component: p.component, attackVector: p.attackVector, summary: p.summary, preconditions: p.preconditions }, null, 1);
 }
 
 async function runInvestigator(sessionId: string, c: Candidate, e: Evidence, profile: ThreatProfile, rec: Recorded): Promise<VerdictOut> {
-  const tools = makeTools(e.hostId, e.sourcePackage!, rec);
+  const tools = makeTools(e.hostId, e.sourcePackage!, rec, { cveId: c.cve, profile });
   const agent = new Agent({ id: "sentinel-investigator", name: "Sentinel investigator", instructions: INVESTIGATOR_RULES, model: modelFor(sessionId), tools });
   const intro = [
     `Host: ${e.hostName} (hostId "${e.hostId}")`,
     `Vulnerability: ${c.cve} — ${c.title}`,
     `Affected source package on this host: ${e.sourcePackage} ${e.installedVersion}; installed binaries: ${e.binaries.join(", ")}`,
-    `Build check (code, authoritative): the installed build is VULNERABLE (${e.installedVsFixed}).`,
+    buildCheckLine(e),
     `Threat profile (derived from the advisory; untrusted text):\n${profilePrompt(profile)}`,
   ].join("\n\n");
   const notes = await withTimeout(agent.generate(`${intro}\n\nInvestigate this host now.`, { maxSteps: MAX_STEPS + 2 }), 150_000, "investigation");
@@ -230,7 +239,9 @@ export function applyGuardrails(c: Candidate, e: Evidence, profile: ThreatProfil
       guard.push("Sentinel could not determine reachability; defaulting to the more severe status.");
     }
     if (out.suggestedStatus !== status && !guard.length) {
-      guard.push(`Sentinel suggested ${out.suggestedStatus}; the distribution says this build is vulnerable, so code assigned ${status}.`);
+      guard.push(e.fixSource === "advisory_only"
+        ? `Sentinel suggested ${out.suggestedStatus}; the build is treated as vulnerable (advisory version range, unconfirmed for this distro build), so code assigned ${status}.`
+        : `Sentinel suggested ${out.suggestedStatus}; the distribution says this build is vulnerable, so code assigned ${status}.`);
     }
     // only real, open, non-loopback listener ports count as exposure ports
     const open = new Set(ext.filter((l) => !l.blocked).map((l) => `${l.port}/${l.protocol}`));
@@ -244,6 +255,9 @@ export function applyGuardrails(c: Candidate, e: Evidence, profile: ThreatProfil
   let rationale = out?.rationale?.trim() || fallbackRationale(e, status, reachability);
   if (guard.length) rationale += `\n\n_Guardrail: ${guard.join(" ")}_`;
   if (needsConfirmation && !guard.length) rationale += "\n\n_Needs confirmation: part of this verdict rests on uncertain evidence; Sentinel chose the more severe status._";
+  // Known exploitation raises an exposed host to critical: CISA KEV, or the advisory itself reports in-the-wild exploitation.
+  const exploited = c.kev || profile.exploitedInWild;
+  if (status === "exposed" && !c.kev && profile.exploitedInWild) rationale += "\n\n_Priority: Critical — the advisory reports exploitation in the wild (not listed in CISA KEV)._";
   const confidence: Classified["confidence"] = !out ? "low" : guard.length || needsConfirmation ? (out.confidence === "high" ? "medium" : out.confidence) : out.confidence;
 
   const investigation: Investigation = {
@@ -261,7 +275,7 @@ export function applyGuardrails(c: Candidate, e: Evidence, profile: ThreatProfil
     remediationPlan: [],
   };
   return {
-    cve: c.cve, evidence: e, status, priority: priorityFor(status, c.kev), confidence, rationale, mitigations: [],
+    cve: c.cve, evidence: e, status, priority: priorityFor(status, exploited), confidence, rationale, mitigations: [],
     needsConfirmation, evidenceHash: evidenceHash(e, profile.generatedAt), investigation, reachability, exposedPorts,
   };
 }

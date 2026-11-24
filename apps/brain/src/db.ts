@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type {
-  ActionRecord, AuditEvent, Finding, FindingStatus, HostSummary, InventorySnapshot, Report, Settings, ThreatProfile,
+  ActionRecord, AdvisoryJudgment, AuditEvent, Finding, FindingStatus, HostSummary, InventorySnapshot, Report, Settings, ThreatProfile,
 } from "@prohori/shared";
 import { env } from "./env";
 
@@ -266,9 +266,13 @@ export function getReport(id: string): Report | null {
   const r = db.query("SELECT data FROM reports WHERE id = ?").get(id) as { data: string } | null;
   return r ? JSON.parse(r.data) : null;
 }
-/** Full demo reset: drop all findings, reports, actions, chat threads and the audit log. Keeps OSV/KEV caches, triage decisions and threat profiles. */
+/** Full demo reset: drop all findings, reports, actions, chat threads, advisory judgments (plus the triage/profile cached when one was tracked) and the audit log. Keeps OSV/KEV caches and the scan's own triage decisions and threat profiles. */
 export function wipeOperationalState() {
-  for (const t of ["findings", "reports", "actions", "chat_threads", "audit_log"]) db.run(`DELETE FROM ${t}`);
+  // Tracking a judgment also cached its triage decision and threat profile under the CVE; drop those too, so after a
+  // reset the CVE is unseen again (scan caches for feed-discovered CVEs are kept).
+  db.run(`DELETE FROM triage WHERE cve_id IN (SELECT DISTINCT UPPER(tracked_cve) FROM judgments WHERE tracked_cve IS NOT NULL)`);
+  db.run(`DELETE FROM threat_profiles WHERE cve_id IN (SELECT DISTINCT UPPER(tracked_cve) FROM judgments WHERE tracked_cve IS NOT NULL)`);
+  for (const t of ["findings", "reports", "actions", "chat_threads", "audit_log", "judgments"]) db.run(`DELETE FROM ${t}`);
 }
 
 export function deleteReport(id: string) {
@@ -421,4 +425,49 @@ export function saveProfile(p: ThreatProfile) {
   db.query(
     "INSERT INTO threat_profiles(cve_id, data, created_at) VALUES (?, ?, ?) ON CONFLICT(cve_id) DO UPDATE SET data = excluded.data, created_at = excluded.created_at",
   ).run(p.cveId.toUpperCase(), JSON.stringify(p), p.generatedAt);
+}
+
+// ---------------- advisory judgments ("Judge an advisory") ----------------
+// data = the AdvisoryJudgment returned by the API; internal = what "Track as findings" needs later but the contract
+// does not expose (per-host Evidence, candidate facts) so tracking reuses the evidence the hosts were judged on.
+db.exec(`
+CREATE TABLE IF NOT EXISTS judgments (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  internal TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  tracked_cve TEXT
+);
+CREATE INDEX IF NOT EXISTS judgments_created ON judgments(created_at);
+`);
+// a brain restart kills in-flight judgment jobs (in-memory queue): mark them failed so cards stop polling
+for (const r of db.query("SELECT id, data FROM judgments").all() as { id: string; data: string }[]) {
+  const j = JSON.parse(r.data) as AdvisoryJudgment;
+  if (j.state === "done" || j.state === "failed") continue;
+  Object.assign(j, { state: "failed", error: "interrupted by a Sentinel restart; ask again", progress: "Interrupted", updatedAt: nowIso() });
+  db.query("UPDATE judgments SET data = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(j), j.updatedAt, j.id);
+}
+
+export function saveJudgment(j: AdvisoryJudgment, internal?: unknown) {
+  db.query(
+    `INSERT INTO judgments(id, data, internal, created_at, updated_at, tracked_cve) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET data = excluded.data, internal = COALESCE(excluded.internal, judgments.internal),
+       updated_at = excluded.updated_at, tracked_cve = excluded.tracked_cve`,
+  ).run(j.id, JSON.stringify(j), internal === undefined ? null : JSON.stringify(internal), j.createdAt, j.updatedAt, j.tracked?.cveId ?? null);
+}
+export function getJudgment(id: string): AdvisoryJudgment | null {
+  const r = db.query("SELECT data FROM judgments WHERE id = ?").get(id) as { data: string } | null;
+  return r ? JSON.parse(r.data) : null;
+}
+export function getJudgmentInternal<T>(id: string): T | null {
+  const r = db.query("SELECT internal FROM judgments WHERE id = ?").get(id) as { internal: string | null } | null;
+  return r?.internal ? (JSON.parse(r.internal) as T) : null;
+}
+export function listJudgments(limit = 50): AdvisoryJudgment[] {
+  return (db.query("SELECT data FROM judgments ORDER BY created_at DESC LIMIT ?").all(limit) as { data: string }[]).map((r) => JSON.parse(r.data));
+}
+/** CVE ids an admin turned into findings from a judgment (scans stop ignoring these). */
+export function trackedCves(): Set<string> {
+  return new Set((db.query("SELECT DISTINCT tracked_cve FROM judgments WHERE tracked_cve IS NOT NULL").all() as { tracked_cve: string }[]).map((r) => r.tracked_cve.toUpperCase()));
 }

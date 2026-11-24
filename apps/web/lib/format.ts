@@ -94,6 +94,9 @@ export const EVENT_TONE: Partial<Record<AuditEvent["kind"], string>> = {
   scan_started: "text-sky-400",
   scan_finished: "text-sky-400",
   settings_changed: "text-slate-300",
+  judgment_requested: "text-sky-300",
+  judgment_done: "text-violet-400",
+  judgment_tracked: "text-emerald-400",
 };
 
 /** "prohori" -> "Prohori", "daemon:web-a" stays, usernames stay. */

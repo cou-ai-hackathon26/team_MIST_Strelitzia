@@ -8,8 +8,8 @@ export class HttpError extends Error {
   constructor(public status: number, message: string) { super(message); }
 }
 
-let rescanHook: (reason: string) => void = () => {};
-export function setRescanHook(fn: (reason: string) => void) { rescanHook = fn; }
+let rescanHook: (reason: string, hostId: string, sinceMs: number) => void = () => {};
+export function setRescanHook(fn: (reason: string, hostId: string, sinceMs: number) => void) { rescanHook = fn; }
 
 const hostName = (id: string) => getHostRow(id)?.name ?? id;
 
@@ -275,5 +275,5 @@ gatewayHooks.onActionResult = async (m) => {
     });
   }
   requestRefresh(a.hostId);
-  rescanHook(`after ${m.kind} of ${a.type} on ${a.hostId}`);
+  rescanHook(`after ${m.kind === "apply" ? "applying" : "rolling back"} ${describeAction(a)}`, a.hostId, Date.parse(at));
 };

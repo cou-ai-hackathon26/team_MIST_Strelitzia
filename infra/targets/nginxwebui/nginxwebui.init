@@ -1,0 +1,19 @@
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          nginxwebui
+# Required-Start:    $network
+# Required-Stop:     $network
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Short-Description: nginxWebUI admin panel (Prohori lab stub)
+### END INIT INFO
+PID=/run/nginxwebui.pid
+BIN=/opt/nginxwebui/nginxwebui
+case "$1" in
+  start)  start-stop-daemon --start --quiet --background --make-pidfile --pidfile $PID --exec /usr/bin/perl --startas $BIN ;;
+  stop)   start-stop-daemon --stop --quiet --pidfile $PID --remove-pidfile ;;
+  restart) "$0" stop; "$0" start ;;
+  # builtins only (`service --status-all` runs with an empty env) and it needs some output to report [ + ]
+  status) if [ -f $PID ] && read p < $PID && kill -0 "$p" 2>/dev/null; then echo "nginxwebui is running"; else echo "nginxwebui is not running"; exit 3; fi ;;
+  *) echo "Usage: $0 {start|stop|restart|status}"; exit 2 ;;
+esac

@@ -7,6 +7,7 @@ import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import type {
   ActionRecord, AuditEvent, DemoScenario, EnrollResponse, Finding, FindingStatus, HostDetailResponse, HostSummary,
   Investigation, InventorySnapshot, Report, ScanState, Settings, StatusResponse, ThreatProfile, WildCve,
+  AdvisoryJudgment, JudgmentHost,
 } from "@prohori/shared";
 
 const PORT = Number(process.env.MOCK_BRAIN_PORT ?? 4100);
@@ -724,6 +725,87 @@ function chatResponse(body: ChatBody): Response {
   return createUIMessageStreamResponse({ stream });
 }
 
+
+// ---------------- advisory judgments (mock) ----------------
+const CYRUS_CVE = "CVE-2026-129483";
+const CYRUS_URL = "https://www.cyrusimap.org/sasl/security/advisory-2026-01.html";
+const CYRUS_PROFILE: ThreatProfile = {
+  cveId: CYRUS_CVE,
+  summary: "An authentication bypass in the Cyrus SASL SRP mechanism lets a remote client authenticate as any user without a valid password, when a service offers the SRP mechanism over the network.",
+  component: "libsasl2 SRP mechanism plugin (libsasl2-modules)",
+  attackVector: "network",
+  preconditions: [
+    { id: "P1", text: "A network-facing service uses Cyrus SASL for authentication", howToCheck: "List listening services linked against libsasl2" },
+    { id: "P2", text: "The SRP mechanism plugin is installed and enabled", howToCheck: "Check for libsrp.so in /usr/lib/x86_64-linux-gnu/sasl2 and mech_list in service configs" },
+  ],
+  completeFix: "Upgrade cyrus-sasl2 to a build containing the upstream fix (none released yet)",
+  partialMitigations: [{ text: "Remove SRP from mech_list in every SASL-using service", tradeoff: "Clients that rely on SRP can no longer authenticate" }],
+  exploitedInWild: false,
+  sources: [CYRUS_URL, "UBUNTU-CVE-2026-129483"],
+  generatedAt: iso(-600),
+};
+const CYRUS_HOSTS: [string, string][] = [["bank-web-01", "bank-web-01"], ["bank-web-02", "bank-web-02"], ["bank-batch-01", "bank-batch-01"], ["bank-ssh-01", "bank-ssh-01"]];
+function cyrusHost(hostId: string, hostName: string): JudgmentHost {
+  const inv: Investigation = {
+    triage: { decidedBy: "sentinel", reason: "Vulnerable build installed; reachability decides the verdict." },
+    profile: { summary: CYRUS_PROFILE.summary, component: CYRUS_PROFILE.component, attackVector: "network", completeFix: CYRUS_PROFILE.completeFix },
+    preconditions: [
+      { id: "P1", text: CYRUS_PROFILE.preconditions[0]!.text, result: "not_met", evidence: ["S1"], note: "No listening service links libsasl2; only the client library is present." },
+      { id: "P2", text: CYRUS_PROFILE.preconditions[1]!.text, result: "not_met", evidence: ["S2"], note: "libsasl2-modules (SRP plugin) is not installed." },
+    ],
+    steps: [
+      { tool: "runHostQuery", input: { sql: "SELECT p.name, l.port FROM listening_ports l JOIN processes p USING(pid)" }, summary: "Listening: sshd 22/tcp, nginx 80/tcp; neither links libsasl2.", ref: "S1" },
+      { tool: "runHostQuery", input: { sql: "SELECT name FROM deb_packages WHERE name LIKE 'libsasl2%'" }, summary: "Only libsasl2-2 is installed (pulled in by libldap); no mechanism plugins.", ref: "S2" },
+    ],
+    conclusion: "The vulnerable library is present but nothing network-facing uses SASL SRP, so the bug is not reachable.",
+    guardrail: null,
+    remediationPlan: [{ kind: "fix", summary: "Upgrade cyrus-sasl2 once Ubuntu releases a fixed build", tradeoff: "No fixed build exists yet", actionType: null, params: null }],
+  };
+  return {
+    hostId, hostName, sourcePackage: "cyrus-sasl2", installedVersion: "2.1.28+dfsg1-5ubuntu3.1", upstreamVersion: "2.1.28",
+    binaries: ["libsasl2-2", "libsasl2-modules-db"], packageMatch: 'exact source package "cyrus-sasl2"',
+    fixStatus: { source: "distro_record", verdict: "vulnerable", fixedVersion: null, detail: "Ubuntu record UBUNTU-CVE-2026-129483: no fixed build released for Ubuntu:24.04:LTS" },
+    naiveVerdict: "vulnerable", status: "vulnerable_not_exposed", priority: "low", confidence: "high", needsConfirmation: false,
+    rationale: `**Vulnerable build, unreachable.** \`libsasl2-2\` ${"2.1.28+dfsg1-5ubuntu3.1"} is affected and no fixed build exists [S2], but no listening service uses SASL [S1] and the SRP plugin is not installed [S2].`,
+    reachability: "No network path: no listening service links libsasl2", exposedPorts: [], mitigations: ["Upgrade cyrus-sasl2 as soon as Ubuntu publishes a fixed build."],
+    investigation: inv,
+  };
+}
+function makeJudgment(over: Partial<AdvisoryJudgment> & { url: string }): AdvisoryJudgment {
+  return {
+    id: `jdg_${Math.random().toString(36).slice(2, 10)}`, focus: null, requestedBy: "admin", threadId: null, createdAt: iso(), updatedAt: iso(),
+    state: "queued", progress: "Queued", error: null, advisory: null, profile: null, hosts: [], notInstalledOn: [], summary: null, tracked: null,
+    ...over,
+  };
+}
+function completeCyrus(j: AdvisoryJudgment, cveId: string | null) {
+  j.advisory = {
+    cveId, otherIds: ["CVE-2026-129484"], title: "Cyrus SASL SRP authentication bypass", product: "Cyrus SASL", sourcePackageGuess: "cyrus-sasl2",
+    affectedRanges: [{ introduced: "2.1.0", lastAffected: "2.1.28" }], fixedVersions: [], fixAvailable: "no",
+    conditions: ["The SRP mechanism is enabled", "A network service authenticates via Cyrus SASL"], distroRecords: ["UBUNTU-CVE-2026-129483"],
+    onIgnoreList: cveId === CYRUS_CVE,
+  };
+  j.profile = CYRUS_PROFILE;
+  j.hosts = CYRUS_HOSTS.map(([a, b]) => cyrusHost(a, b));
+  j.summary = "All four assets run the affected cyrus-sasl2 build and no fixed build exists anywhere, but none exposes SASL SRP to the network. **Vulnerable · Unreachable on 4 assets, Exposed on none.**";
+}
+const judgments: AdvisoryJudgment[] = [];
+{
+  const seed = makeJudgment({ url: CYRUS_URL, createdAt: iso(-900), updatedAt: iso(-840), state: "done", progress: "Done" });
+  completeCyrus(seed, CYRUS_CVE);
+  judgments.push(seed);
+}
+/** Advance a mock judgment through its states based on age. */
+function tickJudgment(j: AdvisoryJudgment) {
+  if (j.state === "done" || j.state === "failed") return;
+  const age = (Date.now() - Date.parse(j.createdAt)) / 1000;
+  if (age > 16) { j.state = "done"; j.progress = "Done"; completeCyrus(j, j.advisory?.cveId ?? null); }
+  else if (age > 8) { j.state = "investigating"; j.progress = `Investigating ${CYRUS_HOSTS[Math.min(3, Math.floor((age - 8) / 2))]![1]} (${Math.min(4, Math.floor((age - 8) / 2) + 1)}/4)`; }
+  else if (age > 5) { j.state = "analysing"; j.progress = "Extracting the vulnerability and matching packages"; }
+  else if (age > 2) { j.state = "fetching"; j.progress = "Fetching the advisory page"; }
+  j.updatedAt = iso();
+}
+
 // ---------------- routes ----------------
 Bun.serve({
   port: PORT,
@@ -777,6 +859,12 @@ Bun.serve({
         if (parts[0] === "actions" && parts[1] && !parts[2]) {
           const a = actions.find((x) => x.id === parts[1]);
           return a ? json(a) : err(404, "action not found");
+        }
+        if (p === "/api/judgments") return json((judgments.forEach(tickJudgment), [...judgments].sort((a, b) => b.createdAt.localeCompare(a.createdAt))));
+        if (parts[0] === "judgments" && parts[1] && !parts[2]) {
+          const j = judgments.find((x) => x.id === parts[1]);
+          if (j) tickJudgment(j);
+          return j ? json(j) : err(404, "judgment not found");
         }
         if (p === "/api/audit") {
           const hid = url.searchParams.get("hostId");
@@ -887,6 +975,28 @@ Bun.serve({
           if (!sc) for (const inv of Object.values(inventories)) inv.firewall.closedPorts = [];
           log("demo_inject", `${actor} reset ${sc ? sc.title : "the demo"}`, { actor });
           return json({ ok: true, restoring, failed: [] });
+        }
+        if (p === "/api/judgments") {
+          const b = await body();
+          if (typeof b.url !== "string" || !/^https:\/\//.test(b.url)) return err(400, "url must be https");
+          const j = makeJudgment({ url: b.url, requestedBy: actor, focus: typeof b.focus === "string" ? b.focus : null, threadId: typeof b.threadId === "string" ? b.threadId : null });
+          if (typeof b.cveId === "string" && b.cveId) j.advisory = { cveId: b.cveId, otherIds: [], title: "", product: "", sourcePackageGuess: "", affectedRanges: [], fixedVersions: [], fixAvailable: "unknown", conditions: [], distroRecords: [], onIgnoreList: false };
+          else if (!b.url.includes("cyrusimap")) j.advisory = null;
+          judgments.push(j);
+          log("judgment_requested", `${actor} asked Sentinel to judge ${b.url}`, { actor, data: { judgmentId: j.id } });
+          return json(j);
+        }
+        if (parts[0] === "judgments" && parts[1] && parts[2] === "track") {
+          const j = judgments.find((x) => x.id === parts[1]);
+          if (!j) return err(404, "judgment not found");
+          if (j.state !== "done") return err(409, "judgment is not done yet");
+          const b = await body();
+          const cve = (typeof b.cveId === "string" && b.cveId) || j.advisory?.cveId;
+          if (!cve) return err(409, "this judgment has no CVE id; supply one to track it");
+          if (j.advisory) j.advisory.cveId = cve;
+          j.tracked = { at: iso(), by: actor, cveId: cve, findingIds: j.hosts.map((h) => `f_${h.hostId}_${cve}`), proposedActions: 0 };
+          log("judgment_tracked", `${actor} tracked ${cve} as findings`, { actor, data: { judgmentId: j.id } });
+          return json(j);
         }
         if (p === "/api/chat") {
           const b = (await body()) as ChatBody;

@@ -7,6 +7,7 @@
 // after checking the admin session cookie. JSON in/out unless noted. Errors: { error: string } with 4xx/5xx.
 
 import type {
+  AdvisoryJudgment,
   ThreatProfile,
   ActionRecord, AuditEvent, Finding, FindingStatus, HostSummary, InventorySnapshot, Report, Settings, WildCve,
 } from "./domain";
@@ -90,6 +91,17 @@ export interface EnrollResponse {
 //   Rolls back every still-applied state-changing action on the servers first (upgrade, firewall, nginx block,
 //   php.ini), then re-holds the CVEs and deletes their findings/reports/open proposals.
 
+// Advisory judgments ("Judge an advisory"): see AdvisoryJudgment in domain.ts.
+// POST /api/judgments           body: { url: string; cveId?: string; focus?: string; threadId?: string } -> AdvisoryJudgment
+//      (202-style: returns at once in state "queued"; the job runs in the background; https only, public hosts only)
+// GET  /api/judgments           -> AdvisoryJudgment[] (newest first, max 50)
+// GET  /api/judgments/:id       -> AdvisoryJudgment
+// POST /api/judgments/:id/track body: { cveId?: string } -> AdvisoryJudgment
+//      (state must be "done"; needs a real CVE id — from the judgment or the body — 409 otherwise; writes findings
+//       f_<hostId>_<CVE> through the normal path, saves the profile, proposes actions with the scan's rules
+//       (upgrade only if a fixed build exists, containment only if exposed; approval always required);
+//       tracked CVEs are no longer ignored by scans, so later scans keep re-checking them. Full reset wipes judgments.)
+
 // GET /api/chat/threads?limit=50 -> ChatThreadSummary[]  (newest activity first; includes review threads)
 export interface ChatThreadSummary {
   id: string;
@@ -109,6 +121,7 @@ export interface ChatThreadSummary {
 //   Tool calls must appear as tool parts so the UI can render them.
 
 export type {
+  AdvisoryJudgment,
   ThreatProfile,
   ActionRecord, AuditEvent, Finding, HostSummary, InventorySnapshot, Report, Settings, WildCve,
 };

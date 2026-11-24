@@ -15,6 +15,7 @@ fi
 if [ "$ROLE" = "web" ]; then
   service php8.3-fpm start || log "php8.3-fpm failed to start"
   service nginx start || log "nginx failed to start"
+  if [ -x /etc/init.d/nginxwebui ]; then service nginxwebui start || log "nginxwebui failed to start"; fi
 elif [ "$ROLE" = "batch" ]; then
   # cron-style nightly-batch stand-in: runs a PHP CLI job every 60s, nothing listens.
   ( while true; do php /opt/batch/reconcile.php >> /var/log/batch-reconcile.log 2>&1; sleep 60; done ) &

@@ -22,7 +22,8 @@ services:
     <<: *target
     build:
       context: ./targets
-      args: { ROLE: web, PHP_BUILD: "8.3.6-0maysync1" }
+      # NGINXWEBUI: lab stub of nginxWebUI 3.5.7 on :8080 (internal network only, not published) for advisory judgments
+      args: { ROLE: web, PHP_BUILD: "8.3.6-0maysync1", NGINXWEBUI: "3.5.7" }
     image: prohori-target-a
     hostname: bank-web-01
     ports: ["8081:80"]

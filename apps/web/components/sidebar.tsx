@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { StatusResponse } from "@prohori/shared";
-import { Activity, Bug, CircleUser, CheckSquare, FileText, Globe, LayoutDashboard, LogOut, MessageSquare, ScrollText, Server, Settings } from "lucide-react";
+import { Activity, Bug, CircleUser, CheckSquare, FileText, Globe, LayoutDashboard, LogOut, MessageSquare, Scale, ScrollText, Server, Settings } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { LiveDot } from "@/components/ui";
 import { usePoll } from "@/lib/api";
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/findings", label: "Findings", icon: Bug },
   { href: "/reports", label: "Reports", icon: FileText },
   { href: "/chat", label: "Sentinel", icon: MessageSquare },
+  { href: "/judgments", label: "Advisory Judge", icon: Scale },
   { href: "/approvals", label: "Approvals", icon: CheckSquare },
   { href: "/wild", label: "Threat Intelligence", icon: Globe },
   { href: "/events", label: "Audit Log", icon: ScrollText },

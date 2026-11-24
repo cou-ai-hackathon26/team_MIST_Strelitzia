@@ -10,7 +10,7 @@ import { sendReportEmail } from "../mailer";
 import { closeObsoleteProposals, hasEquivalentAction, markRechecked, proposeAction } from "../actions";
 import { extractAdvisory, writeReport } from "./ai";
 import {
-  buildCandidates, buildEvidence, evidenceHash, heldSet, loadHosts, matchedCves, needsTextPath, osvMatch,
+  buildCandidates, buildEvidence, buildFinding, evidenceHash, heldSet, priorityLabel, statusLabel, loadHosts, matchedCves, needsTextPath, osvMatch,
   sourcesOf, type ScanContext,
 } from "./engine";
 import { triage } from "./triage";
@@ -19,10 +19,6 @@ import { investigateHost } from "./investigate";
 import { mitigationsFromPlan, planRemediation } from "./plan";
 import { mapPool } from "./util";
 
-const STATUS_LABEL: Record<string, string> = { exposed: "Exposed", vulnerable_not_exposed: "Vulnerable · Unreachable", not_affected: "Not Affected" };
-const PRIORITY_LABEL: Record<string, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low", info: "Informational" };
-const statusLabel = (s: string) => STATUS_LABEL[s] ?? s;
-const priorityLabel = (p: string) => PRIORITY_LABEL[p] ?? p;
 
 export const scanContexts = new Map<string, ScanContext>();
 const IO = z.object({ scanId: z.string() });
@@ -177,44 +173,7 @@ const upsertFindings = createStep({
       if (heldNow.has(c.cve)) continue;
       const e = k.evidence;
       const prev = getFindingByKey(e.hostId, c.cve)?.finding;
-      const f: Finding = {
-        id: prev?.id ?? `f_${e.hostId}_${c.cve}`,
-        hostId: e.hostId,
-        cveId: c.cve,
-        aliases: c.aliases,
-        title: c.title,
-        status: k.status,
-        priority: k.priority,
-        confidence: k.confidence,
-        needsConfirmation: k.needsConfirmation,
-        inKev: c.kev,
-        cvss: c.cvss,
-        package: { name: e.sourcePackage!, installedVersion: e.installedVersion!, fixedVersion: e.distroFixed },
-        naiveVerdict: e.naiveVerdict,
-        rationale: k.rationale,
-        mitigations: k.mitigations,
-        evidence: {
-          hostName: e.hostName,
-          installed: `${e.sourcePackage} ${e.installedVersion} (upstream ${e.upstreamVersion})`,
-          binaries: e.binaries.join(", "),
-          fixed: e.distroFixed ?? "unknown",
-          versionCheck: e.installedVsFixed,
-          distroVerdict: e.distroVerdict,
-          naiveVerdict: e.naiveVerdict,
-          reachability: k.reachability,
-          listening: e.listening.join("; ") || "nothing on non-loopback addresses",
-          firewall: e.firewall,
-          ...(k.exposedPorts.length ? { exposedPorts: k.exposedPorts.map((p) => `${p.port}/${p.protocol}`).join(", ") } : {}),
-          kev: c.kev ? `yes (added ${c.kevInfo?.dateAdded})` : "no",
-          cvss: c.cvss ?? "n/a",
-          triage: `${c.triage.decidedBy}: ${c.triage.reason}`,
-          ...(k.investigation.guardrail ? { guardrail: k.investigation.guardrail } : {}),
-        },
-        investigation: k.investigation,
-        firstSeen: prev?.firstSeen ?? now,
-        updatedAt: now,
-        reportId: prev?.reportId ?? null,
-      };
+      const f: Finding = buildFinding(c, k, prev, now);
       saveFinding(f, k.evidenceHash);
       const SEV = { not_affected: 0, vulnerable_not_exposed: 1, exposed: 2 } as const;
       if (!discovered.has(c.cve) && !hadFindingsBefore.get(c.cve)) {
@@ -331,6 +290,38 @@ const reportStep = createStep({
   },
 });
 
+/** The scan's auto-proposal rules for ONE exposed finding (all pending; a human approves): the plan's validated
+ *  containment, and the upgrade only when a fixed build exists. Skips anything equivalent that already exists.
+ *  Returns the number of new proposals. Also used by "Track as findings". */
+export function proposeFixesFor(f: Finding, notes: string[]): number {
+  let n = 0;
+  const propose = (type: ActionType, params: Record<string, unknown>, reason: string) => {
+    // don't re-propose what an admin rejected or revised away (rolled_back may be re-proposed)
+    if (hasEquivalentAction(f.hostId, type, params, ["pending", "approved", "running", "applied", "rejected", "superseded"])) return;
+    try {
+      proposeAction({ hostId: f.hostId, findingId: f.id, type, params, proposedBy: "agent", reason });
+      n++;
+    } catch (e) {
+      notes.push(`propose ${type} failed: ${(e as Error).message}`);
+    }
+  };
+  if (f.status !== "exposed") return 0;
+  const plan = f.investigation?.remediationPlan ?? [];
+  // (a) the plan's immediate containment, if Sentinel found an allowed action for it (already validated in code)
+  const containment = plan.find((p) => p.kind === "containment" && p.actionType && p.params);
+  if (containment) {
+    propose(containment.actionType as ActionType, containment.params!,
+      `Immediate containment for ${f.cveId} on ${f.evidence.hostName}: ${containment.summary.replace(/\.$/, "")}. Trade-off: ${containment.tradeoff} Not a fix — the upgrade is still required.`);
+  }
+  // (b) the complete fix (package list filled by code from the inventory)
+  const fix = plan.find((p) => p.kind === "fix" && p.actionType === "upgrade_packages" && p.params);
+  if (fix && f.package?.fixedVersion) {
+    propose("upgrade_packages", fix.params!,
+      `${f.evidence.hostName} is exposed to ${f.cveId}${f.inKev ? " (CISA KEV)" : ""}: ${f.package.name} ${f.package.installedVersion} is vulnerable and reachable. Upgrading to ${f.package.fixedVersion} is the complete fix.`);
+  }
+  return n;
+}
+
 const proposeFixes = createStep({
   id: "propose-fixes",
   description: "Auto-propose (pending) the plan's containment and fix for exposed findings",
@@ -339,31 +330,9 @@ const proposeFixes = createStep({
     const ctx = ctxOf(inputData.scanId);
     // Pending proposals whose finding got resolved (e.g. after an upgrade) are closed automatically.
     closeObsoleteProposals((id) => getFinding(id)?.status ?? null);
-    const propose = (f: Finding, type: ActionType, params: Record<string, unknown>, reason: string) => {
-      // don't re-propose what an admin rejected or revised away (rolled_back may be re-proposed)
-      if (hasEquivalentAction(f.hostId, type, params, ["pending", "approved", "running", "applied", "rejected", "superseded"])) return;
-      try {
-        proposeAction({ hostId: f.hostId, findingId: f.id, type, params, proposedBy: "agent", reason });
-        ctx.proposedActions++;
-      } catch (e) {
-        ctx.notes.push(`propose ${type} failed: ${(e as Error).message}`);
-      }
-    };
     for (const f of listFindings({ status: "exposed" })) {
       if (!ctx.hosts.some((h) => h.id === f.hostId)) continue;
-      const plan = f.investigation?.remediationPlan ?? [];
-      // (a) the plan's immediate containment, if Sentinel found an allowed action for it (already validated in code)
-      const containment = plan.find((p) => p.kind === "containment" && p.actionType && p.params);
-      if (containment) {
-        propose(f, containment.actionType as ActionType, containment.params!,
-          `Immediate containment for ${f.cveId} on ${f.evidence.hostName}: ${containment.summary.replace(/\.$/, "")}. Trade-off: ${containment.tradeoff} Not a fix — the upgrade is still required.`);
-      }
-      // (b) the complete fix (package list filled by code from the inventory)
-      const fix = plan.find((p) => p.kind === "fix" && p.actionType === "upgrade_packages" && p.params);
-      if (fix && f.package?.fixedVersion) {
-        propose(f, "upgrade_packages", fix.params!,
-          `${f.evidence.hostName} is exposed to ${f.cveId}${f.inKev ? " (CISA KEV)" : ""}: ${f.package.name} ${f.package.installedVersion} is vulnerable and reachable. Upgrading to ${f.package.fixedVersion} is the complete fix.`);
-      }
+      ctx.proposedActions += proposeFixesFor(f, ctx.notes);
     }
     return inputData;
   },
@@ -371,7 +340,7 @@ const proposeFixes = createStep({
 
 export const scanWorkflow = createWorkflow({
   id: "prohori-scan",
-  description: "Inventory → OSV → Sentinel triage → advisory parse → threat profiles → host facts → investigations + guardrails + plans → findings → report → propose fixes",
+  description: "Inventory → OSV → Sentinel triage → advisory parse → threat profiles → host facts → investigations + guardrails + plans → findings → propose fixes → report",
   inputSchema: IO,
   outputSchema: IO,
 })
@@ -383,6 +352,6 @@ export const scanWorkflow = createWorkflow({
   .then(crossHostEvidence)
   .then(investigate)
   .then(upsertFindings)
+  .then(proposeFixes) // before the report: approvals must not wait ~1 min for the AI report writer + email
   .then(reportStep)
-  .then(proposeFixes)
   .commit();

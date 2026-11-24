@@ -8,7 +8,7 @@ import type {
 import {
   audit, createHost, getAction, saveAction, findingTotals, getFinding, getHostRow, getInventory,
   getReport, getSettings, holdState, hostSummary, listActions, listAudit, listFindings, listHostRows, listReports, saveSettings,
-  touchChatThread, getProfile, upsertChatThreadIfMissing, listChatThreads,
+  touchChatThread, getProfile, upsertChatThreadIfMissing, listChatThreads, getJudgment, listJudgments,
 } from "./db";
 import { env } from "./env";
 import { isOnline } from "./gateway";
@@ -19,6 +19,7 @@ import { kevRecent } from "./vuln/kev";
 import { mastra } from "./mastra";
 import { scheduleWild } from "./wild";
 import { inject, reset as resetDemo, scenarios } from "./demo";
+import { startJudgment, trackJudgment } from "./scan/judge";
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "http://localhost:3000",
@@ -303,6 +304,28 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
     if (m === "GET" && parts[0] === "profiles" && parts.length === 2) {
       const p = getProfile(decodeURIComponent(parts[1]!).toUpperCase());
       return p ? json(p) : err(404, "no threat profile for this CVE yet");
+    }
+    if (parts[0] === "judgments") {
+      if (m === "POST" && parts.length === 1) {
+        const b = await body<{ url?: unknown; cveId?: unknown; focus?: unknown; threadId?: unknown }>(req);
+        if (typeof b.url !== "string") throw new HttpError(400, "url (string) required");
+        if (b.cveId !== undefined && b.cveId !== null && typeof b.cveId !== "string") throw new HttpError(400, "cveId must be a string");
+        if (b.focus !== undefined && b.focus !== null && typeof b.focus !== "string") throw new HttpError(400, "focus must be a string");
+        return json(await startJudgment({
+          url: b.url, cveId: (b.cveId as string | null) ?? null, focus: (b.focus as string | null) ?? null,
+          threadId: typeof b.threadId === "string" && b.threadId ? b.threadId.slice(0, 200) : null, actor,
+        }), 202);
+      }
+      if (m === "GET" && parts.length === 1) return json(listJudgments(50));
+      if (m === "GET" && parts.length === 2) {
+        const j = getJudgment(decodeURIComponent(parts[1]!));
+        return j ? json(j) : err(404, "judgment not found");
+      }
+      if (m === "POST" && parts.length === 3 && parts[2] === "track") {
+        const b = await body<{ cveId?: unknown }>(req);
+        if (b.cveId !== undefined && b.cveId !== null && typeof b.cveId !== "string") throw new HttpError(400, "cveId must be a string");
+        return json(trackJudgment(decodeURIComponent(parts[1]!), { cveId: b.cveId, actor }));
+      }
     }
     if (m === "POST" && path === "/api/chat") return await chat(req, actor);
     if (m === "GET" && parts[0] === "chat" && parts[1] === "threads" && parts.length === 2) {

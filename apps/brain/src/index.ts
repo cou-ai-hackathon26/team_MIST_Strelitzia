@@ -1,10 +1,11 @@
 // Prohori brain: one Bun.serve for /agent (daemon WebSocket) and /api/* (dashboard HTTP API).
 import { env } from "./env";
-import { holdState, initHold, upsertSeedHost } from "./db";
+import { holdState, initHold, listActions, upsertSeedHost } from "./db";
 import { websocketHandler, type WsData } from "./gateway";
 import { handleApi } from "./api";
 import { setRescanHook } from "./actions";
 import { scheduleScans, startScan } from "./scan/runner";
+import { requestRecheck } from "./scan/recheck";
 import { scheduleWild } from "./wild";
 import { ensureKev } from "./vuln/kev";
 import "./mastra";
@@ -12,12 +13,9 @@ import "./mastra";
 for (const h of env.seedHosts) upsertSeedHost(h.id, h.name, h.token);
 initHold(env.replayHold);
 
-let rescanTimer: Timer | null = null;
-setRescanHook((reason) => {
-  if (rescanTimer) clearTimeout(rescanTimer);
-  // give the daemon a moment to send its refreshed inventory
-  rescanTimer = setTimeout(() => startScan(reason, { queueIfBusy: true }), 8000);
-});
+// After an action result: targeted re-check of that host only (waits for the refreshed inventory; works with
+// scanning switched off). Scheduled scans still cover everything else.
+setRescanHook((reason, hostId, sinceMs) => requestRecheck(hostId, reason, sinceMs));
 
 const server = Bun.serve<WsData>({
   port: env.port,
@@ -43,6 +41,12 @@ void ensureKev();
 scheduleScans();
 scheduleWild();
 setTimeout(() => startScan("startup"), env.firstScanDelayMs);
+// actions left "re-assessing" by a restart (or by the old scan-only re-check) get their re-check now
+setTimeout(() => {
+  for (const a of listActions()) {
+    if (a.progress?.phase === "rechecking") requestRecheck(a.hostId, "re-check pending since before a restart", Date.parse(a.progress.resultAt ?? a.progress.since));
+  }
+}, 3000);
 
 const shutdown = () => {
   console.log("[brain] shutting down");

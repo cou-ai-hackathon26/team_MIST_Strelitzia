@@ -190,6 +190,31 @@ export async function getServices(): Promise<{ name: string; state: string }[]> 
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// ---------- package file lists ----------
+
+/** Debian binary package name with an optional `:arch` qualifier (no leading `-`, so never an option). */
+export const DEB_PACKAGE_RE = /^[a-z0-9][a-z0-9+.-]{0,99}(:[a-z0-9-]+)?$/;
+export const PACKAGE_FILES_MAX = 400;
+
+/**
+ * `dpkg-query -L -- <pkg>`. Rows: `{ path }[]`, one per absolute path dpkg lists for the package (directories
+ * included, the `/.` root entry and diversion notes dropped). Capped at PACKAGE_FILES_MAX rows; when capped, a final
+ * row `{ path: "...", truncated: true, total: <number of paths> }` is appended.
+ */
+export async function getPackageFiles(pkg: string | undefined): Promise<Record<string, unknown>[]> {
+  if (!pkg || !DEB_PACKAGE_RE.test(pkg)) throw new Error(`package_files requires params.package: a Debian binary package name (got ${JSON.stringify(pkg ?? "")})`);
+  const r = await run(["dpkg-query", "-L", "--", pkg], { timeoutMs: 15_000 });
+  if (r.timedOut) throw new Error(`dpkg-query -L ${pkg} timed out`);
+  if (r.code !== 0) {
+    if (/is not installed/.test(r.stderr)) throw new Error(`package "${pkg}" is not installed`);
+    throw new Error(`dpkg-query failed (exit ${r.code}): ${(r.stderr || r.stdout).trim().slice(0, 300)}`);
+  }
+  const paths = [...new Set(r.stdout.split("\n").map((l) => l.trim()).filter((l) => l.startsWith("/") && l !== "/."))];
+  const rows: Record<string, unknown>[] = paths.slice(0, PACKAGE_FILES_MAX).map((path) => ({ path }));
+  if (paths.length > PACKAGE_FILES_MAX) rows.push({ path: "...", truncated: true, total: paths.length });
+  return rows;
+}
+
 // ---------- dispatch ----------
 
 export async function runNamedQuery(name: QueryName, params: Record<string, string> = {}): Promise<Record<string, unknown>[]> {
@@ -215,6 +240,8 @@ export async function runNamedQuery(name: QueryName, params: Record<string, stri
       return readConfigFile(params.path);
     case "services":
       return getServices();
+    case "package_files":
+      return getPackageFiles(params.package);
   }
 }
 

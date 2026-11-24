@@ -5,6 +5,7 @@ import { ACTION_DESCRIPTIONS, ACTION_TYPES, CONFIG_DIRECTIVE_ALLOWLIST, CONFIG_P
 import {
   audit, getFinding as dbGetFinding, getHostRow, getInventory as dbGetInventory, getSettings, hostSummary, listFindings as dbListFindings,
   listHostRows, newId, nowIso, saveFinding, saveReport, getAction as dbGetAction, listActions as dbListActions, getProfile as dbGetProfile,
+  getJudgment as dbGetJudgment,
 } from "../db";
 import { hostQuery } from "../scan/facts";
 import { actionCatalog } from "../scan/plan";
@@ -16,6 +17,7 @@ import { heldSet, isHeldVuln, sourcesOf, type Candidate } from "../scan/engine";
 import { startScan, scanState } from "../scan/runner";
 import { writeReport } from "../scan/ai";
 import { sendReportEmail } from "../mailer";
+import { slimJudgment, startJudgment } from "../scan/judge";
 
 const hostIdSchema = z.string().describe("Host id, e.g. web-a (use listHosts to map names like bank-web-02 to ids)");
 
@@ -278,7 +280,40 @@ export const listActionsTool = createTool({
   },
 });
 
+export const judgeAdvisoryTool = createTool({
+  id: "judgeAdvisory",
+  description:
+    "Judge ONE advisory URL (https) against every host, without the scan feed: Sentinel reads the page, checks distro records for the build's fix status, investigates each host with the affected package and plans remediation. " +
+    "Runs in the background (a few minutes) and returns at once with a judgment id (jdg_…); the chat shows a live card. The result is NOT a finding until the admin clicks \"Track as findings\". " +
+    "Pass focus when the page covers several bugs and the admin named one; pass cveId only if the admin gave one.",
+  inputSchema: z.object({
+    url: z.string().describe("the advisory URL the admin gave (https)"),
+    cveId: z.string().optional().describe("CVE id, only if the admin stated it"),
+    focus: z.string().optional().describe("which bug on the page to judge, if the admin named one (e.g. 'the SRP authentication bypass')"),
+  }),
+  execute: async ({ url, cveId, focus }, ctx) => {
+    try {
+      const { threadId, actor } = chatCtx(ctx);
+      return slimJudgment(await startJudgment({ url, cveId: cveId ?? null, focus: focus ?? null, threadId, actor: actor ?? "unknown" }));
+    } catch (e) {
+      return { error: (e as Error).message };
+    }
+  },
+});
+
+export const getJudgmentTool = createTool({
+  id: "getJudgment",
+  description: "Current state and result of an advisory judgment (jdg_…): progress, the advisory facts (CVE id, ranges, fix availability, distro records consulted), and per host: status, fix-status source (distro_record vs advisory_only), version-only verdict, reachability, rationale, how the package was matched.",
+  inputSchema: z.object({ judgmentId: z.string() }),
+  execute: async ({ judgmentId }) => {
+    const j = dbGetJudgment(judgmentId.trim());
+    return j ? slimJudgment(j) : { error: "judgment not found" };
+  },
+});
+
 export const prohoriTools = {
+  judgeAdvisory: judgeAdvisoryTool,
+  getJudgment: getJudgmentTool,
   listHosts: listHostsTool,
   getInventory: getInventoryTool,
   runHostQuery: runHostQueryTool,

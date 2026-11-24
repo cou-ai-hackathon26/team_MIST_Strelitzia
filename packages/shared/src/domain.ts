@@ -184,6 +184,9 @@ export interface AuditEvent {
       | "vulnerable_detected"  // a host judged exposed / vulnerable_not_exposed
       | "report_generated"     // report saved (report_sent = email delivered)
       | "action_revised"       // a pending proposal superseded by a revision (usually from chat)
+      | "judgment_requested"   // an admin asked Sentinel to judge an advisory URL
+      | "judgment_done"        // a judgment finished (or failed)
+      | "judgment_tracked"     // a judgment was turned into findings ("Track as findings")
       | "login";
   message: string;
   actor: string;          // "prohori" for the system/agent, "daemon:<hostId>" for daemon results, else admin username
@@ -203,4 +206,72 @@ export interface WildCve {
   knownRansomwareCampaignUse: string; // "Known" | "Unknown"
   dueDate: string;
   affectsHosts: string[]; // host ids where we have a finding with status exposed|vulnerable_not_exposed
+}
+
+// ---------------------------------------------------------------- advisory judgments ("Judge an advisory" mode)
+// The admin hands Sentinel an advisory URL (usually from chat). Sentinel judges it against every host WITHOUT the
+// scan feed: the page is the source of truth for what/how; distro records (OSV UBUNTU-/DEBIAN-<CVE>), when a CVE id
+// is known and they exist, decide whether the installed build is patched. Stored separately from findings until the
+// admin clicks "Track as findings". Bypasses DEMO_IGNORE_CVES (explicit admin request).
+
+export type JudgmentState = "queued" | "fetching" | "analysing" | "investigating" | "done" | "failed";
+
+export interface JudgmentHost {
+  hostId: string;
+  hostName: string;
+  sourcePackage: string;           // installed source package the advisory's product was matched to
+  installedVersion: string;        // full distro version
+  upstreamVersion: string;
+  binaries: string[];
+  /** how the advisory's product was matched to this source package, e.g. 'exact source package "cyrus-sasl2"' */
+  packageMatch: string;
+  /** whether the installed build is patched, and which source decided it */
+  fixStatus: {
+    source: "distro_record" | "advisory_only";
+    verdict: "vulnerable" | "not_vulnerable" | "unknown";
+    fixedVersion: string | null;   // distro fixed build (distro_record) or upstream fixed version (advisory_only), if any
+    detail: string;                // one line, e.g. "Ubuntu record UBUNTU-CVE-…: no fixed build released for Ubuntu:24.04:LTS"
+  };
+  /** what a version-number-only check concludes (the contrast shown on the judgment page) */
+  naiveVerdict: "vulnerable" | "not_vulnerable" | "unknown";
+  status: FindingStatus;
+  priority: Priority;
+  confidence: "high" | "medium" | "low";
+  needsConfirmation: boolean;
+  rationale: string;               // markdown, cites S1…
+  reachability: string;
+  exposedPorts: string[];          // e.g. ["80/tcp"]
+  mitigations: string[];
+  investigation: Investigation;
+}
+
+export interface AdvisoryJudgment {
+  id: string;                      // "jdg_…"
+  url: string;
+  focus: string | null;            // optional admin hint when a page covers several bugs ("the SRP bypass")
+  requestedBy: string;
+  threadId: string | null;         // chat thread that requested it
+  createdAt: string;
+  updatedAt: string;
+  state: JudgmentState;
+  progress: string;                // human-readable current step, e.g. "Investigating bank-web-01 (2/4)"
+  error: string | null;
+  advisory: {
+    cveId: string | null;          // primary CVE id of THE judged vulnerability (admin-supplied wins), null if none known
+    otherIds: string[];            // other ids seen on the page (CVE/GHSA/…) — may belong to other bugs
+    title: string;
+    product: string;
+    sourcePackageGuess: string;
+    affectedRanges: { introduced?: string; fixed?: string; lastAffected?: string }[];
+    fixedVersions: string[];       // upstream fixed versions stated by the advisory (empty = none stated)
+    fixAvailable: "yes" | "no" | "unknown"; // per the advisory text
+    conditions: string[];
+    distroRecords: string[];       // OSV distro record ids consulted (empty = advisory-only)
+    onIgnoreList: boolean;         // the CVE is in DEMO_IGNORE_CVES (scans never looked at it)
+  } | null;
+  profile: ThreatProfile | null;
+  hosts: JudgmentHost[];           // hosts with a matching installed package (investigated)
+  notInstalledOn: { hostId: string; hostName: string }[];
+  summary: string | null;          // one-paragraph verdict for chat/cards
+  tracked: { at: string; by: string; cveId: string; findingIds: string[]; proposedActions: number } | null;
 }

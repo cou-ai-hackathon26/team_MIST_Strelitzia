@@ -11,6 +11,7 @@ export const QUERY_NAMES = [
   "nginx_config",    // { key, value }[]    selected nginx directives (client_max_body_size, multipart block marker)
   "config_file",     // { key, value }[]    effective directives of ONE allow-listed config file; requires params.path (see CONFIG_PATHS)
   "services",        // { name, state }[]   init/systemd services and whether they are running
+  "package_files",   // { path }[]          files shipped by ONE installed binary package (dpkg -L); requires params.package
 ] as const;
 
 export type QueryName = (typeof QUERY_NAMES)[number];

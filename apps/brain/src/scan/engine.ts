@@ -1,7 +1,7 @@
 // Deterministic scan logic (data gathering, evidence, hard rules). AI steps live in ./ai.ts.
 import type { Finding, FindingStatus, InstalledPackage, InventorySnapshot, Investigation, Priority, ThreatProfile } from "@prohori/shared";
 import { env } from "../env";
-import { getFindingByKey, getInventory, holdState, listHostRows, sha256, updateHostMeta } from "../db";
+import { getFindingByKey, getInventory, holdState, listHostRows, sha256, trackedCves, updateHostMeta } from "../db";
 import { inKev, kevEntry } from "../vuln/kev";
 import {
   allIds, cveOf, distroFixed, ecosystemFor, getVuln, getVulns, queryBatch, severityOf, upstreamRanges, type OsvVuln,
@@ -18,7 +18,7 @@ export interface ScanHost {
 export interface AdvisoryExtraction {
   product: string;
   sourcePackageGuess: string;
-  affectedRanges: { introduced?: string; fixed?: string }[];
+  affectedRanges: { introduced?: string; fixed?: string; lastAffected?: string }[];
   fixedVersions: string[];
   conditions: string[];
 }
@@ -64,6 +64,9 @@ export interface Evidence {
   cvss: string | null;
   needsConfirmation: boolean;
   factsDigest: string;
+  /** Judgments only (left undefined by scans so scan evidence hashes stay stable): what decided the build verdict —
+   *  a distro record, or only the advisory's upstream version ranges (no backport knowledge). */
+  fixSource?: "distro_record" | "advisory_only";
 }
 
 export interface Classified {
@@ -111,8 +114,11 @@ export interface ScanContext {
 }
 
 // ---------------------------------------------------------------- hold
+/** CVEs scans ignore: DEMO_IGNORE_CVES minus those an admin tracked from an advisory judgment (scans must keep
+ *  re-checking tracked findings so they can resolve). */
 export function heldSet(): Set<string> {
-  return new Set(env.ignoreCves.map((s) => s.toUpperCase()));
+  const tracked = trackedCves();
+  return new Set(env.ignoreCves.map((s) => s.toUpperCase()).filter((c) => !tracked.has(c)));
 }
 export function isHeldVuln(v: OsvVuln | null, id: string, held: Set<string>): boolean {
   if (!held.size) return false;
@@ -308,9 +314,12 @@ export function obviouslyOwnedListeners(src: string, binaries: string[], inv: In
   });
 }
 
-const fmtListener = (l: ListenerFact) => `${l.address}:${l.port}/${l.protocol} ${l.process}${l.blocked ? " (blocked by firewall)" : ""}`;
+export const fmtListener = (l: ListenerFact) => `${l.address}:${l.port}/${l.protocol} ${l.process}${l.blocked ? " (blocked by firewall)" : ""}`;
 
 /** Digest of the host facts that can change a verdict (cache key for the investigation). */
+export function factsDigestOf(inv: InventorySnapshot, src: string, binaries: InstalledPackage[]): string {
+  return sha256(JSON.stringify(hostFactsDigest(inv, src, binaries)));
+}
 function hostFactsDigest(inv: InventorySnapshot, src: string, binaries: InstalledPackage[]) {
   return {
     binaries: binaries.map((b) => `${b.name}=${b.version}`).sort(),
@@ -379,7 +388,7 @@ export function buildEvidence(ctx: ScanContext, c: Candidate): Evidence[] {
       inKev: c.kev,
       cvss: c.cvss,
       needsConfirmation: !!c.textOnly || distroVerdict === "unknown",
-      factsDigest: sha256(JSON.stringify(hostFactsDigest(h.inv, src, s.binaries))),
+      factsDigest: factsDigestOf(h.inv, src, s.binaries),
     });
   }
   return out;
@@ -416,6 +425,57 @@ export function fallbackRationale(e: Evidence, status: FindingStatus, reachabili
       : "Installed build is not in the vulnerable set → not affected.",
   );
   return lines.join("\n\n");
+}
+
+const STATUS_LABEL: Record<string, string> = { exposed: "Exposed", vulnerable_not_exposed: "Vulnerable · Unreachable", not_affected: "Not Affected" };
+const PRIORITY_LABEL: Record<string, string> = { critical: "Critical", high: "High", medium: "Medium", low: "Low", info: "Informational" };
+export const statusLabel = (s: string) => STATUS_LABEL[s] ?? s;
+export const priorityLabel = (p: string) => PRIORITY_LABEL[p] ?? p;
+
+/** The Finding record for one classified (host, CVE) pair; shared by the scan's upsert and "Track as findings". */
+export function buildFinding(
+  c: Pick<Candidate, "cve" | "aliases" | "title" | "kev" | "kevInfo" | "cvss" | "triage">,
+  k: Classified, prev: Finding | null | undefined, now: string,
+): Finding {
+  const e = k.evidence;
+  return {
+    id: prev?.id ?? `f_${e.hostId}_${c.cve}`,
+    hostId: e.hostId,
+    cveId: c.cve,
+    aliases: c.aliases,
+    title: c.title,
+    status: k.status,
+    priority: k.priority,
+    confidence: k.confidence,
+    needsConfirmation: k.needsConfirmation,
+    inKev: c.kev,
+    cvss: c.cvss,
+    package: { name: e.sourcePackage!, installedVersion: e.installedVersion!, fixedVersion: e.distroFixed },
+    naiveVerdict: e.naiveVerdict,
+    rationale: k.rationale,
+    mitigations: k.mitigations,
+    evidence: {
+      hostName: e.hostName,
+      installed: `${e.sourcePackage} ${e.installedVersion} (upstream ${e.upstreamVersion})`,
+      binaries: e.binaries.join(", "),
+      fixed: e.distroFixed ?? "unknown",
+      versionCheck: e.installedVsFixed,
+      distroVerdict: e.distroVerdict,
+      naiveVerdict: e.naiveVerdict,
+      reachability: k.reachability,
+      listening: e.listening.join("; ") || "nothing on non-loopback addresses",
+      firewall: e.firewall,
+      ...(k.exposedPorts.length ? { exposedPorts: k.exposedPorts.map((p) => `${p.port}/${p.protocol}`).join(", ") } : {}),
+      kev: c.kev ? `yes (added ${c.kevInfo?.dateAdded})` : "no",
+      cvss: c.cvss ?? "n/a",
+      triage: `${c.triage.decidedBy}: ${c.triage.reason}`,
+      ...(k.investigation.guardrail ? { guardrail: k.investigation.guardrail } : {}),
+    },
+    investigation: k.investigation,
+    firstSeen: prev?.firstSeen ?? now,
+    updatedAt: now,
+    reportId: prev?.reportId ?? null,
+  };
 }
 
 export function existingFor(hostId: string, cve: string) {

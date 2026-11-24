@@ -7,6 +7,8 @@ import { resolve } from "node:path";
 import { env } from "./env";
 import { describeAction, HttpError, rollbackAction } from "./actions";
 import { cancelScan } from "./scan/runner";
+import { cancelJudgments } from "./scan/judge";
+import { cancelRechecks } from "./scan/recheck";
 
 export function scenarios(): DemoScenario[] {
   const injected = new Set(holdState().injected);
@@ -51,10 +53,12 @@ function fullReset(actor: string): { ok: true; restoring: string[]; failed: stri
   // cancel first: a running scan must not write findings/reports/proposals into the wiped state (or investigate
   // hosts while they are being recreated)
   const cancelled = cancelScan();
+  cancelJudgments(); // running advisory judgments must not write into the wiped state either
+  cancelRechecks(); // nor targeted re-checks after an action
   setHold(env.replayHold, "held");
   saveSettings({ cveScanEnabled: false });
   wipeOperationalState();
-  audit("demo_inject", `${who(actor)} reset the demonstration environment: cleared all findings, reports, approvals, chats and the event log${cancelled ? "; cancelled the running scan" : ""}; recreating the lab servers (scan caches kept)`, { actor, data: { cveIds: env.replayHold, full: true } });
+  audit("demo_inject", `${who(actor)} reset the demonstration environment: cleared all findings, reports, approvals, advisory judgments, chats and the event log${cancelled ? "; cancelled the running scan" : ""}; recreating the lab servers (scan caches kept)`, { actor, data: { cveIds: env.replayHold, full: true } });
   const proc = Bun.spawn(["docker", "compose", "-f", COMPOSE, "up", "-d", "--force-recreate", "target-a", "target-b", "target-c", "target-d"], { stdout: "ignore", stderr: "pipe" });
   proc.exited.then(async (code) => {
     if (code !== 0) audit("demo_inject", `Lab server recreation failed (exit ${code}): ${(await new Response(proc.stderr).text()).slice(-300)}`, { actor });
@@ -66,6 +70,7 @@ export function reset(actor: string, b: { scenarioId?: string }): { ok: true; re
   if (!b.scenarioId) return fullReset(actor);
   const scoped = b.scenarioId ? scenarioOrThrow(b.scenarioId) : null;
   const cancelled = cancelScan(); // a running scan could re-create the findings this reset clears
+  cancelRechecks();
   const ids = scoped ? scoped.cveIds : env.replayHold;
   const scenarioFindingIds = new Set(listFindings().filter((f: Finding) => ids.includes(f.cveId)).map((f) => f.id));
   // 1) put the servers back: roll back state-changing actions that are still applied (newest first).

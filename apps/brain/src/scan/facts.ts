@@ -64,6 +64,9 @@ export function factsFromInventory(hostId: string, hostName: string, inv: Invent
 }
 
 const globToRe = (g: string) => new RegExp("^" + g.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, "[^/]*") + "$");
+/** Same rule the daemon enforces for package_files: Debian binary package name, optional `:arch`. */
+export const DEB_PACKAGE_RE = /^[a-z0-9][a-z0-9+.-]{0,99}(:[a-z0-9-]+)?$/;
+
 export const configPathAllowed = (path: string) => CONFIG_PATHS.some((g) => globToRe(g).test(path));
 
 /** Live named query on a host; falls back to the stored inventory if the daemon is offline or lacks the query. */
@@ -75,15 +78,25 @@ export async function hostQuery(hostId: string, name: string, params: Record<str
     const path = params.path ?? "";
     if (!configPathAllowed(path)) return { source: "live", rows: [], error: `config_file path must match one of: ${CONFIG_PATHS.join(", ")}` };
   }
+  if (name === "package_files" && !DEB_PACKAGE_RE.test(params.package ?? "")) {
+    return { source: "live", rows: [], error: `package_files requires params {"package": "<binary package name>"} (lowercase Debian name, optional :arch), got ${JSON.stringify(params.package ?? "")}` };
+  }
   let liveError = "";
   if (isOnline(hostId)) {
     try {
-      const rows = await queryHost(hostId, name as QueryName, name === "config_file" ? { path: params.path! } : undefined);
+      const qp: Record<string, string> | undefined = name === "config_file" ? { path: params.path! } : name === "package_files" ? { package: params.package! } : undefined;
+      const rows = await queryHost(hostId, name as QueryName, qp);
       return { source: "live", rows };
     } catch (e) {
       liveError = (e as Error).message;
     }
   } else liveError = "host offline";
+  if (name === "package_files") {
+    // a definitive daemon answer ("not installed") is a fact, not a transport failure
+    if (/is not installed/.test(liveError)) return { source: "live", rows: [], error: liveError };
+    // the stored inventory has no per-package file lists: never answer with unrelated data
+    return { source: "stored_inventory", rows: [], error: `live query failed (${liveError}); file lists are only available live from the daemon (host offline or daemon too old)` };
+  }
   const inv = getInventory(hostId);
   if (!inv) return { source: "stored_inventory", rows: [], error: `live query failed (${liveError}) and no stored inventory` };
   const note = `live query unavailable (${liveError}); answered from the stored inventory collected ${inv.collectedAt}`;
@@ -103,6 +116,7 @@ function fromInventory(inv: InventorySnapshot, name: string, params: Record<stri
         .filter(([k]) => re.test(k.slice(0, k.lastIndexOf(":"))))
         .map(([k, value]) => ({ file: k.slice(0, k.lastIndexOf(":")), key: k.slice(k.lastIndexOf(":") + 1), value }));
     }
+    case "package_files": return []; // no file lists in the stored inventory (hostQuery returns an error before this)
     case "services": {
       // no service list in the stored inventory: report running processes as a proxy
       return [...new Set((inv.processes ?? []).map((p) => p.name))].map((n) => ({ name: n, state: "running (process)" }));
