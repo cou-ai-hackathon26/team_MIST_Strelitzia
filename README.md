@@ -18,7 +18,7 @@ Prohori keeps a live inventory of every server, watches vulnerability intelligen
 |---|---|
 | **Project Name** | **Prohori** (featuring **Sentinel**, AI Security Analyst) |
 | **Team Name** | *MIST_Strelitzia* |
-| **Team Members** | • **K M Ahnaf Zamil** **AKM Zawadur Rafid** **Alif Ul Haque** |
+| **Team Members** | • **K M Ahnaf Zamil**, **AKM Zawadur Rafid**, **Alif Ul Haque** |
 
 ---
 
@@ -172,10 +172,8 @@ Prohori is built on original application code in `apps/`, `packages/`, `infra/`,
 
 ---
 
-## Setup Steps, Live Link & Demo Video
+## Setup Steps
 
-- **Live Link:** `http://localhost:3000` *(or replace with deployed URL)*
-- **Demo Video:** *[Insert Demo Video URL Here]* (See **[`docs/DEMO.md`](docs/DEMO.md)** for the full 3-minute live demo script and runbook).
 
 ### Prerequisites
 
