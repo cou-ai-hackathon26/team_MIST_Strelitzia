@@ -25,6 +25,8 @@ export const EVENT_ICON: Partial<Record<AuditEvent["kind"], typeof Bug>> = {
   action_rolled_back: Undo2,
   host_online: Power,
   host_offline: Power,
+  host_unassessable: AlertTriangle,
+  host_recovered: Power,
   inventory_changed: RefreshCw,
   demo_inject: Sparkles,
   settings_changed: Settings,

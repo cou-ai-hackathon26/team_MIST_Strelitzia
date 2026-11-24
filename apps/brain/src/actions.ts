@@ -2,6 +2,7 @@
 // applied/failed → rollback. Every human decision records the actor, an optional note and the chat thread.
 import { ActionParams, type ActionRecord, type ActionType } from "@prohori/shared";
 import { audit, getAction, getHostRow, listActions, newId, nowIso, saveAction } from "./db";
+import { blockReason } from "./health";
 import { gatewayHooks, isOnline, requestRefresh, sendAction, sendRollback } from "./gateway";
 
 export class HttpError extends Error {
@@ -45,6 +46,9 @@ export function proposeAction(input: {
   threadId?: string | null; supersedes?: string | null; actor?: string;
 }): ActionRecord {
   if (!getHostRow(input.hostId)) throw new HttpError(404, `unknown host ${input.hostId}`);
+  // Sentinel never proposes from an inventory it cannot trust: daemon down, silent or stale → no proposals at all.
+  const why = blockReason(input.hostId);
+  if (why) throw new HttpError(409, `${hostName(input.hostId)} cannot be assessed (${why}); Sentinel proposes no fixes for it until the daemon reports again`);
   const params = validate(input.type, input.params);
   // Never create a duplicate: if an identical proposal is already pending (or approved/running/applied),
   // return that one instead (and attach this chat thread if it has none).
@@ -197,6 +201,8 @@ export function approveAction(id: string, d: Decision): ActionRecord {
   const host = getHostRow(a.hostId);
   if (!host) throw new HttpError(404, "host not found");
   if (!isOnline(a.hostId)) throw new HttpError(409, `${host.name} is offline`);
+  const why = blockReason(a.hostId);
+  if (why) throw new HttpError(409, `${host.name} cannot be assessed (${why}); the proposal was made from an inventory that can no longer be trusted. Wait for the daemon to report again, then Sentinel re-checks the host.`);
   a.state = "approved";
   a.decidedAt = nowIso();
   a.decidedBy = d.actor;

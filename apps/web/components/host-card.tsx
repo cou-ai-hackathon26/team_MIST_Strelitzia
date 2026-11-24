@@ -6,6 +6,7 @@ import { Cpu, Lock, Network, Package } from "lucide-react";
 import { Card } from "@/components/ui";
 import { usePoll } from "@/lib/api";
 import { cn, relTime } from "@/lib/utils";
+import { HealthPill } from "@/components/host-health";
 import { HostFixProgress } from "@/components/fix-progress";
 import { PRIORITY_RANK, STATUS_RANK, sortFindings } from "@/lib/format";
 
@@ -43,6 +44,7 @@ export function HostCard({ host, now }: { host: HostSummary; now: number }) {
     <Card
       className={cn(
         "flex flex-col overflow-hidden",
+        host.health?.alert ? "border-orange-500/70 shadow-[0_0_0_1px_rgba(249,115,22,0.25)]" : "",
         c.exposed > 0 ? "border-red-500/60 shadow-[0_0_0_1px_rgba(239,68,68,0.25),0_0_30px_-10px_rgba(239,68,68,0.5)]" : c.vulnerable_not_exposed > 0 ? "border-amber-500/40" : "",
       )}
     >
@@ -58,6 +60,7 @@ export function HostCard({ host, now }: { host: HostSummary; now: number }) {
             {online ? "Online" : "Offline"}
           </span>
           <span className="text-[11px] text-dim">Last seen {relTime(host.lastSeen, now)}</span>
+          <HealthPill health={host.health} />
         </div>
       </div>
 

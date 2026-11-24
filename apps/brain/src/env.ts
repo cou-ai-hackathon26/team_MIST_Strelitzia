@@ -65,6 +65,10 @@ export const env = {
   },
   /** Public URL daemons use to reach the brain (for enroll install command). */
   publicUrl: process.env.BRAIN_PUBLIC_URL ?? `http://127.0.0.1:${process.env.BRAIN_PORT ?? 4400}`,
+  /** How often daemons send a full inventory (sent to them in `welcome`). */
+  inventorySec: Number(process.env.INVENTORY_SEC ?? 120),
+  /** An online host whose last inventory is older than this is "stale" → unassessable. */
+  inventoryStaleSec: Number(process.env.INVENTORY_STALE_SEC ?? Math.max(300, Number(process.env.INVENTORY_SEC ?? 120) * 2.5)),
   firstScanDelayMs: Number(process.env.FIRST_SCAN_DELAY_MS ?? 20_000),
   /** Parallel host investigations (each is a chain of LLM calls) in scans, judgments and re-checks. */
   investigationConcurrency: Math.max(1, Math.min(16, Number(process.env.SCAN_CONCURRENCY ?? 6) || 6)),

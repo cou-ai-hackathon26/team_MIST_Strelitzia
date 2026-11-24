@@ -17,6 +17,7 @@ import { investigateHost } from "./investigate";
 import { mitigationsFromPlan, planRemediation } from "./plan";
 import { fallbackProfile } from "./profile";
 import { proposeFixesFor } from "./workflow";
+import { blockReason } from "../health";
 import { mapPool } from "./util";
 
 const INVENTORY_WAIT_MS = 12_000;
@@ -117,6 +118,13 @@ export async function recheckHost(hostId: string, reason: string, sinceMs: numbe
   const startedAt = Date.now();
   const fresh = await waitForInventory(hostId, sinceMs);
   if (!live()) return;
+  const why = blockReason(hostId);
+  if (why) {
+    // never re-assess (or resolve findings) from an inventory we cannot trust; the host is re-checked when it recovers
+    audit("scan_finished", `Re-check of ${hostId} skipped (${reason}): host cannot be assessed — ${why}`, { hostId, data: { recheck: true, skipped: true, reason, why } });
+    settleActions(hostId, Date.now());
+    return;
+  }
   const host: ScanHost | undefined = loadHosts().find((h) => h.id === hostId);
   if (!host) return;
   const findings = listFindings({ hostId });

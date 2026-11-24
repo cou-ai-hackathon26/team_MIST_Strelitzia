@@ -6,6 +6,7 @@ import { handleApi } from "./api";
 import { setRescanHook } from "./actions";
 import { scheduleScans, startScan } from "./scan/runner";
 import { requestRecheck } from "./scan/recheck";
+import { startHealthWatch } from "./health";
 import { scheduleWild } from "./wild";
 import { ensureKev } from "./vuln/kev";
 import "./mastra";
@@ -16,6 +17,9 @@ initHold(env.replayHold);
 // After an action result: targeted re-check of that host only (waits for the refreshed inventory; works with
 // scanning switched off). Scheduled scans still cover everything else.
 setRescanHook((reason, hostId, sinceMs) => requestRecheck(hostId, reason, sinceMs));
+
+// Host trust watchdog: audits "host cannot be assessed" / "recovered"; a recovered host is re-checked right away.
+startHealthWatch((hostId) => requestRecheck(hostId, "host reporting again", Date.now() - 30_000));
 
 const server = Bun.serve<WsData>({
   port: env.port,

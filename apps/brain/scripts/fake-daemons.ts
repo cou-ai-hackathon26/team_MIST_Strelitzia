@@ -112,6 +112,7 @@ function connect(h: (typeof hosts)[number]) {
     send({ type: "inventory", reason, snapshot: h.inv });
   };
   let hb: Timer | null = null;
+  let inv: Timer | null = null;
   ws.onopen = () => send({ type: "hello", hostId: h.id, token: h.token, daemonVersion: "0.1.0-fake", protocolVersion: PROTOCOL_VERSION });
   ws.onmessage = (ev) => {
     const parsed = BrainToDaemon.safeParse(JSON.parse(String(ev.data)));
@@ -122,6 +123,7 @@ function connect(h: (typeof hosts)[number]) {
         console.log(`[${h.id}] welcome`);
         sendInv("connect");
         hb = setInterval(() => send({ type: "heartbeat", at: new Date().toISOString() }), m.heartbeatSec * 1000);
+        inv = setInterval(() => sendInv("periodic"), m.inventorySec * 1000);
         break;
       case "reject":
         console.error(`[${h.id}] rejected: ${m.reason}`);
@@ -186,6 +188,7 @@ function connect(h: (typeof hosts)[number]) {
   };
   ws.onclose = (e) => {
     if (hb) clearInterval(hb);
+    if (inv) clearInterval(inv);
     console.log(`[${h.id}] closed (${e.code} ${e.reason}); reconnecting in 3s`);
     setTimeout(() => connect(h), 3000);
   };

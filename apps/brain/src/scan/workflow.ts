@@ -18,6 +18,7 @@ import { triage } from "./triage";
 import { profileFor } from "./profile";
 import { investigateHost } from "./investigate";
 import { mitigationsFromPlan, planRemediation } from "./plan";
+import { unassessableHosts, blockReason } from "../health";
 import { mapPool } from "./util";
 
 
@@ -47,6 +48,7 @@ const loadInventory = createStep({
   execute: async ({ inputData }) => {
     const ctx = ctxOf(inputData.scanId);
     ctx.hosts = loadHosts();
+    for (const h of unassessableHosts()) ctx.notes.push(`skipped ${h.name}: cannot be assessed — ${h.health.reason}`);
     return inputData;
   },
 });
@@ -316,6 +318,8 @@ export function proposeFixesFor(f: Finding, notes: string[]): number {
     }
   };
   if (f.status !== "exposed") return 0;
+  const why = blockReason(f.hostId);
+  if (why) { notes.push(`no proposals for ${f.evidence.hostName}: cannot be assessed (${why})`); return 0; }
   const plan = f.investigation?.remediationPlan ?? [];
   // (a) the plan's immediate containment, if Sentinel found an allowed action for it (already validated in code)
   const containment = plan.find((p) => p.kind === "containment" && p.actionType && p.params);

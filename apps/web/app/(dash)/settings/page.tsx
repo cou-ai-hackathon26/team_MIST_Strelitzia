@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { EnrollResponse, Settings } from "@prohori/shared";
-import { Copy, ExternalLink, FlaskConical, Mail, Plus, RotateCcw, Save, Server, Settings as SettingsIcon, Sparkles, Trash2 } from "lucide-react";
+import type { EnrollResponse, Settings, StatusResponse } from "@prohori/shared";
+import { Copy, ExternalLink, FlaskConical, Mail, Plus, Power, RotateCcw, Save, Server, Settings as SettingsIcon, Sparkles, Trash2 } from "lucide-react";
 import { Badge, Button, Card, CardHeader, ErrorBanner, Input, PageHeader, Skeleton } from "@/components/ui";
 import { api, refreshAllPolls, usePoll } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -154,6 +154,57 @@ function EnrollForm() {
   );
 }
 
+/** Demo: take a lab server's daemon down / bring it back, and watch Sentinel stop proposing for it. */
+function OutageControl() {
+  const status = usePoll<StatusResponse>("/status", 2000);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useFlash();
+  const hosts = status.data?.hosts ?? [];
+  const down = hosts.filter((h) => h.health?.state === "unassessable" && h.health.alert);
+
+  async function toggle(id: string, name: string, takeDown: boolean) {
+    setBusy(id);
+    try {
+      await api("/demo/outage", { method: "POST", json: { hostId: id, down: takeDown } });
+      setMsg({ ok: true, text: takeDown ? `Daemon on ${name} taken down. Within a few seconds the dashboard shows it cannot be assessed.` : `Daemon on ${name} is starting again; it reports within a few seconds.` });
+      refreshAllPolls();
+      await status.refresh();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-orange-500/40 bg-bg p-3">
+      <div className="flex items-center gap-2">
+        <span className="font-display text-sm text-white">Daemon Outage</span>
+        {down.length > 0 && <Badge tone="amber" className="uppercase">{down.length} down</Badge>}
+      </div>
+      <div className="mt-1 text-xs text-muted">Stops a server&apos;s daemon. Sentinel then cannot trust its inventory: it shows an alert and proposes no fixes for that server until the daemon is back.</div>
+      <ul className="mt-3 space-y-1.5">
+        {hosts.map((h) => {
+          const isDown = h.status === "offline";
+          return (
+            <li key={h.id} className="flex flex-wrap items-center gap-2 rounded-md bg-panel px-3 py-1.5 text-sm">
+              <Server className="size-3.5 text-muted" />
+              <span className="font-semibold text-white">{h.name}</span>
+              <span className={cn("text-xs", isDown ? "text-orange-300" : "text-emerald-300")}>{isDown ? "daemon down" : "daemon online"}</span>
+              {h.health?.state === "unassessable" && h.health.alert && <span className="text-xs text-orange-200/80">· Sentinel will not propose fixes</span>}
+              <Button className="ml-auto" size="sm" variant={isDown ? "secondary" : "danger"} onClick={() => toggle(h.id, h.name, !isDown)} loading={busy === h.id} disabled={!!busy}>
+                <Power className="size-3.5" /> {isDown ? "Bring back" : "Take down"}
+              </Button>
+            </li>
+          );
+        })}
+        {hosts.length === 0 && <li className="text-xs text-muted">No assets enrolled.</li>}
+      </ul>
+      <div className="mt-2"><Flash msg={msg} /></div>
+    </div>
+  );
+}
+
 function DemoPanel() {
   const settings = usePoll<Settings>("/settings", 3000);
   const [busy, setBusy] = useState<string | null>(null);
@@ -209,6 +260,7 @@ function DemoPanel() {
             <Sparkles className="size-4" /> Allow CVE Scan
           </Button>
         </div>
+        <OutageControl />
         <div className="flex flex-wrap items-center gap-3">
           <Button variant="secondary" onClick={reset} loading={busy === "reset"} disabled={!!busy}>
             <RotateCcw className="size-4" /> Reset Environment

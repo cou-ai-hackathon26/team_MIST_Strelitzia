@@ -84,6 +84,8 @@ export const EVENT_TONE: Partial<Record<AuditEvent["kind"], string>> = {
   action_rolled_back: "text-amber-400",
   host_online: "text-emerald-400",
   host_offline: "text-slate-400",
+  host_unassessable: "text-orange-400",
+  host_recovered: "text-emerald-400",
   demo_inject: "text-violet-400",
   error: "text-red-400",
   cve_discovered: "text-orange-400",

@@ -31,6 +31,7 @@ export function Sidebar() {
   }, []);
   const exposed = data?.totals.exposed ?? 0;
   const pending = data?.pendingActions ?? 0;
+  const unhealthy = data?.hosts.filter((h) => h.health?.alert).length ?? 0;
 
   async function logout() {
     await fetch("/api/logout", { method: "POST" });
@@ -67,7 +68,10 @@ export function Sidebar() {
         })}
         {data && data.hosts.length > 0 && (
           <div className="pt-5">
-            <div className="px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-dim">Assets</div>
+            <div className="flex items-center gap-2 px-3 pb-1.5 text-[11px] font-semibold uppercase tracking-wider text-dim">
+              Assets
+              {unhealthy > 0 && <span className="rounded-full bg-orange-500 px-1.5 text-[11px] font-bold normal-case text-black" title="Servers that cannot be assessed">{unhealthy}</span>}
+            </div>
             {data.hosts.map((h) => {
               const active = pathname === `/hosts/${h.id}`;
               return (
@@ -78,7 +82,9 @@ export function Sidebar() {
                 >
                   <Server className="size-3.5" />
                   <span className="flex-1 truncate">{h.name}</span>
-                  {h.findingCounts.exposed > 0 ? (
+                  {h.health?.alert ? (
+                    <span className="size-2 rounded-full bg-orange-500 animate-pulse-dot" title={`Cannot be assessed: ${h.health.reason}`} />
+                  ) : h.findingCounts.exposed > 0 ? (
                     <span className="size-2 rounded-full bg-exposed" title="Exposed" />
                   ) : (
                     <span className={cn("size-2 rounded-full", h.status === "online" ? "bg-emerald-500/70" : "bg-slate-600")} />

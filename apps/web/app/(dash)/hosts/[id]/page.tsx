@@ -6,6 +6,7 @@ import type { HostDetailResponse } from "@prohori/shared";
 import { Cpu, Lock, Network, Package, Server, Settings2, ShieldBan } from "lucide-react";
 import { Badge, Card, CardHeader, Empty, ErrorBanner, Input, KV, KevBadge, LiveTag, PageHeader, PriorityBadge, Skeleton, StatusPill } from "@/components/ui";
 import { useNow, usePoll } from "@/lib/api";
+import { HealthPanel } from "@/components/host-health";
 import { sortFindings } from "@/lib/format";
 import { cn, fmtDate, relTime } from "@/lib/utils";
 
@@ -35,6 +36,7 @@ export default function HostPage({ params }: { params: Promise<{ id: string }> }
         <Skeleton className="h-96" />
       ) : (
         <div className="space-y-5">
+          {h && <HealthPanel host={h} now={now} />}
           <Card>
             <CardHeader title={`Findings (${findings.length})`} />
             {findings.length === 0 ? (

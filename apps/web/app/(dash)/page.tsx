@@ -7,6 +7,7 @@ import { Activity, AlertOctagon, Loader2, Radar, ScanLine, ShieldCheck } from "l
 import { ActivityFeed } from "@/components/activity";
 import { ContrastTable } from "@/components/contrast";
 import { HostCard } from "@/components/host-card";
+import { HealthBanner, unassessable } from "@/components/host-health";
 import { Button, Card, CardHeader, Empty, ErrorBanner, KevBadge, LiveTag, PageHeader, Skeleton } from "@/components/ui";
 import { api, useNow, usePoll } from "@/lib/api";
 import { groupByCve } from "@/lib/format";
@@ -90,6 +91,8 @@ export default function OverviewPage() {
         <>
           <ScanStrip scan={d.scan} onScan={scanNow} busy={scanBusy} now={now} />
 
+          <HealthBanner hosts={d.hosts} now={now} />
+
           {exposedHosts.length > 0 ? (
             <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border border-red-500/50 bg-gradient-to-r from-red-950/80 to-red-950/20 px-5 py-4">
               <AlertOctagon className="size-7 shrink-0 text-red-400" />
@@ -104,6 +107,14 @@ export default function OverviewPage() {
               </div>
               {exposedFindings.some((f) => f.inKev) && <KevBadge className="text-xs" />}
               <Link href={`/findings/${exposedFindings[0]!.id}`}><Button variant="danger">Investigate</Button></Link>
+            </div>
+          ) : unassessable(d.hosts).length > 0 ? (
+            <div className="mb-5 flex items-center gap-3 rounded-xl border border-slate-500/40 bg-slate-900/60 px-5 py-3.5">
+              <AlertOctagon className="size-6 text-slate-400" />
+              <div className="text-sm">
+                <span className="font-semibold text-white">Exposure cannot be confirmed for {unassessable(d.hosts).map((h) => h.name).join(", ")}.</span>{" "}
+                <span className="text-muted">No exposure is known on the servers that are reporting.</span>
+              </div>
             </div>
           ) : (
             <div className="mb-5 flex items-center gap-3 rounded-xl border border-emerald-500/30 bg-emerald-950/30 px-5 py-3.5">

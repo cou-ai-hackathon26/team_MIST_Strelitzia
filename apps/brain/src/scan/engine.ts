@@ -2,6 +2,7 @@
 import type { Finding, FindingStatus, InstalledPackage, InventorySnapshot, Investigation, Priority, ThreatProfile } from "@prohori/shared";
 import { env } from "../env";
 import { getFindingByKey, getInventory, holdState, listHostRows, sha256, trackedCves, updateHostMeta } from "../db";
+import { blockReason } from "../health";
 import { inKev, kevEntry } from "../vuln/kev";
 import {
   allIds, cveOf, distroFixed, ecosystemFor, getVuln, getVulns, queryBatch, severityOf, upstreamRanges, type OsvVuln,
@@ -138,6 +139,7 @@ export function isHeldVuln(v: OsvVuln | null, id: string, held: Set<string>): bo
 export function loadHosts(): ScanHost[] {
   const out: ScanHost[] = [];
   for (const h of listHostRows()) {
+    if (blockReason(h.id)) continue; // daemon down / silent / stale: never assess (or resolve findings) from an untrusted inventory
     const inv = getInventory(h.id);
     if (!inv) continue;
     out.push({ id: h.id, name: h.name, inv, ecosystem: ecosystemFor(inv.os) });

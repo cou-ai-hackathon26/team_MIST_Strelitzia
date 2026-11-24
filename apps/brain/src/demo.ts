@@ -1,8 +1,9 @@
 // Demo replay: embargoed disclosures (env DEMO_SCENARIOS + DEMO_REPLAY_HOLD) that can be released/reset per scenario.
 import type { DemoScenario, Finding } from "@prohori/shared";
 import {
-  audit, deleteAction, deleteFindingsForCves, deleteReport, holdState, listActions, saveSettings, wipeOperationalState, listFindings, listReports, setHold,
+  audit, listHostRows, deleteAction, deleteFindingsForCves, deleteReport, holdState, listActions, saveSettings, wipeOperationalState, listFindings, listReports, setHold,
 } from "./db";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { env } from "./env";
 import { describeAction, HttpError, rollbackAction } from "./actions";
@@ -107,4 +108,40 @@ export function reset(actor: string, b: { scenarioId?: string }): { ok: true; re
     actor, data: { cveIds: ids, scenarioId: scoped?.id ?? null, findings: findingIds.size, reports, actions, restoring, failed },
   });
   return { ok: true, restoring, failed };
+}
+
+// ---------------------------------------------------------------- daemon outage (demo)
+/** hostId → docker compose service of the lab, read from the compose file (service block with PROHORI_HOST_ID). */
+function labServiceFor(hostId: string): string | null {
+  let text: string;
+  try { text = readFileSync(COMPOSE, "utf8"); } catch { return null; }
+  const blocks = text.split(/^  (?=[a-z][\w-]*:\s*$)/m);
+  for (const b of blocks) {
+    const name = /^([a-z][\w-]*):/.exec(b)?.[1];
+    if (name && new RegExp(`PROHORI_HOST_ID:\\s*["']?${hostId}["']?\\s*$`, "m").test(b)) return name;
+  }
+  return null;
+}
+
+/**
+ * Demo: take a lab server's daemon down (stop its container) or bring it back. The brain then sees a real outage:
+ * after the heartbeat timeout the host is "cannot be assessed" and Sentinel proposes nothing for it.
+ */
+export async function outage(actor: string, hostId: string, down: boolean): Promise<{ ok: true; hostId: string; service: string; down: boolean }> {
+  const host = listHostRows().find((h) => h.id === hostId);
+  if (!host) throw new HttpError(404, `unknown host ${hostId}`);
+  const service = labServiceFor(hostId);
+  if (!service) throw new HttpError(409, `${host.name} is not a lab server managed by this demo (no compose service with PROHORI_HOST_ID=${hostId})`);
+  const argv = down ? ["docker", "compose", "-f", COMPOSE, "stop", "-t", "1", service] : ["docker", "compose", "-f", COMPOSE, "start", service];
+  const proc = Bun.spawn(argv, { stdout: "ignore", stderr: "pipe" });
+  const code = await proc.exited;
+  if (code !== 0) {
+    const e = (await new Response(proc.stderr).text()).slice(-300);
+    audit("error", `Demo: could not ${down ? "take down" : "bring back"} the daemon on ${host.name}: ${e}`, { actor, hostId });
+    throw new HttpError(500, `docker compose ${down ? "stop" : "start"} ${service} failed: ${e}`);
+  }
+  audit("demo_inject", down
+    ? `${who(actor)} took down the daemon on ${host.name} (demo outage). Watch it become unassessable: Sentinel will propose no fixes for it.`
+    : `${who(actor)} brought the daemon on ${host.name} back.`, { actor, hostId, data: { outage: down, service } });
+  return { ok: true, hostId, service, down };
 }

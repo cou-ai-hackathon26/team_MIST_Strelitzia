@@ -3,6 +3,23 @@
 
 export type HostStatus = "online" | "offline";
 
+/**
+ * Can Sentinel trust this host's inventory right now? "unassessable" hosts get no scans, no proposals and no
+ * approvals until the daemon reports again.
+ * - offline: the daemon is not connected / stopped sending heartbeats
+ * - stale: the daemon is connected but has not delivered a valid inventory recently
+ * - never_reported: no inventory has ever been received (the daemon never connected, or has not sent one yet)
+ */
+export interface HostHealth {
+  state: "ok" | "unassessable";
+  /** true when an admin should investigate (false while waiting for a daemon that just started / the brain just restarted) */
+  alert: boolean;
+  kind: "offline" | "stale" | "never_reported" | null;
+  reason: string;                   // human sentence, e.g. "daemon not responding (last heartbeat 2 min ago)"
+  since: string | null;             // when the problem began (last heartbeat / last inventory)
+  lastInventoryAt: string | null;   // last valid inventory received by the brain
+}
+
 export interface HostSummary {
   id: string;              // stable id, e.g. "web-a"
   name: string;            // display name, e.g. "bank-web-01"
@@ -13,6 +30,8 @@ export interface HostSummary {
   findingCounts: Record<FindingStatus, number>;
   /** Total raw OSV matches for this host's packages — what a naive scanner would alert on. */
   rawMatchCount: number;
+  /** Inventory trust state; Sentinel proposes nothing for an unassessable host. */
+  health?: HostHealth;
 }
 
 /** One installed OS package as reported by osquery `deb_packages` (or rpm_packages). */
@@ -187,6 +206,8 @@ export interface AuditEvent {
       | "judgment_requested"   // an admin asked Sentinel to judge an advisory URL
       | "judgment_done"        // a judgment finished (or failed)
       | "judgment_tracked"     // a judgment was turned into findings ("Track as findings")
+      | "host_unassessable"    // a host's daemon stopped reporting / its inventory went stale: Sentinel stops proposing for it
+      | "host_recovered"       // that host reports again and is assessed again
       | "login";
   message: string;
   actor: string;          // "prohori" for the system/agent, "daemon:<hostId>" for daemon results, else admin username

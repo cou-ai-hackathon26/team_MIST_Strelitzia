@@ -12,13 +12,14 @@ import {
 } from "./db";
 import { env } from "./env";
 import { isOnline } from "./gateway";
+import { computeHealth } from "./health";
 import { approveAction, describeAction, HttpError, rejectAction, rollbackAction } from "./actions";
 import { toAISdkV5Messages } from "@mastra/ai-sdk/ui";
 import { scanState, scheduleScans, startScan } from "./scan/runner";
 import { kevRecent } from "./vuln/kev";
 import { mastra } from "./mastra";
 import { scheduleWild } from "./wild";
-import { inject, reset as resetDemo, scenarios } from "./demo";
+import { inject, outage as demoOutage, reset as resetDemo, scenarios } from "./demo";
 import { startJudgment, trackJudgment } from "./scan/judge";
 
 const CORS: Record<string, string> = {
@@ -44,7 +45,8 @@ async function body<T = any>(req: Request): Promise<T> {
   try { return JSON.parse(t) as T; } catch { throw new HttpError(400, "invalid JSON body"); }
 }
 
-const hostSummaries = () => listHostRows().map((r) => hostSummary(r, isOnline(r.id)));
+const withHealth = (r: ReturnType<typeof listHostRows>[number]) => ({ ...hostSummary(r, isOnline(r.id)), health: computeHealth(r.id) });
+const hostSummaries = () => listHostRows().map(withHealth);
 
 // ---------------------------------------------------------------- settings
 function validateSettings(p: any): Partial<Settings> {
@@ -218,7 +220,7 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
       if (m === "GET" && parts.length === 2) {
         const row = getHostRow(parts[1]!);
         if (!row) throw new HttpError(404, "host not found");
-        const res: HostDetailResponse = { host: hostSummary(row, isOnline(row.id)), inventory: getInventory(row.id), findings: listFindings({ hostId: row.id }) };
+        const res: HostDetailResponse = { host: withHealth(row), inventory: getInventory(row.id), findings: listFindings({ hostId: row.id }) };
         return json(res);
       }
     }
@@ -296,6 +298,11 @@ export async function handleApi(req: Request, url: URL): Promise<Response> {
     if (m === "POST" && path === "/api/demo/inject") {
       const b = await body<{ scenarioId?: string; cveIds?: string[] }>(req);
       return json(inject(actor, { scenarioId: typeof b.scenarioId === "string" && b.scenarioId ? b.scenarioId : undefined, cveIds: Array.isArray(b.cveIds) ? b.cveIds : undefined }));
+    }
+    if (m === "POST" && path === "/api/demo/outage") {
+      const b = await body<{ hostId?: unknown; down?: unknown }>(req);
+      if (typeof b.hostId !== "string" || !b.hostId) return err(400, "hostId is required");
+      return json(await demoOutage(actor, b.hostId, b.down !== false));
     }
     if (m === "POST" && path === "/api/demo/reset") {
       const b = await body<{ scenarioId?: string }>(req);

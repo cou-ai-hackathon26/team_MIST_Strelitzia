@@ -185,6 +185,12 @@ export function saveInventory(hostId: string, snap: InventorySnapshot): { change
   return { changed, first: !prev };
 }
 
+/** When the brain last received an inventory from this host (brain clock; the host's clock is not trusted). */
+export function getInventoryReceivedAt(hostId: string): string | null {
+  const r = db.query("SELECT received_at FROM inventories WHERE host_id = ?").get(hostId) as { received_at: string } | null;
+  return r?.received_at ?? null;
+}
+
 export function getInventory(hostId: string): InventorySnapshot | null {
   const r = db.query("SELECT snapshot FROM inventories WHERE host_id = ?").get(hostId) as { snapshot: string } | null;
   return r ? (JSON.parse(r.snapshot) as InventorySnapshot) : null;

@@ -3,6 +3,7 @@ import type { ServerWebSocket } from "bun";
 import {
   DaemonToBrain, PROTOCOL_VERSION, TIMING, type BrainToDaemon, type InventorySnapshot, type QueryName,
 } from "@prohori/shared";
+import { env } from "./env";
 import { audit, getHostRow, nowIso, saveInventory, updateHostMeta, verifyHostToken } from "./db";
 
 export interface WsData { hostId: string | null; connectedAt: number }
@@ -82,7 +83,7 @@ export const websocketHandler = {
       ws.data.hostId = parsed.hostId;
       conns.set(parsed.hostId, ws);
       updateHostMeta(parsed.hostId, { daemonVersion: parsed.daemonVersion });
-      send(ws, { id: crypto.randomUUID(), type: "welcome", heartbeatSec: TIMING.heartbeatSec, inventorySec: TIMING.inventorySec });
+      send(ws, { id: crypto.randomUUID(), type: "welcome", heartbeatSec: TIMING.heartbeatSec, inventorySec: env.inventorySec });
       markOnline(parsed.hostId);
       return;
     }

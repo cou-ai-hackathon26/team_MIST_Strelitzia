@@ -10,6 +10,7 @@ import {
 import { hostQuery } from "../scan/facts";
 import { actionCatalog } from "../scan/plan";
 import { isOnline } from "../gateway";
+import { computeHealth } from "../health";
 import { proposeAction, reviseAction } from "../actions";
 import { kevEntry } from "../vuln/kev";
 import { allIds, cveOf, distroFixed, ecosystemFor, getVuln, getVulns, queryBatch, severityOf, upstreamRanges } from "../vuln/osv";
@@ -39,7 +40,7 @@ export const listHostsTool = createTool({
   id: "listHosts",
   description: "List all monitored hosts with online status, OS, finding counts .",
   inputSchema: z.object({}),
-  execute: async () => ({ hosts: listHostRows().map((r) => hostSummary(r, isOnline(r.id))) }),
+  execute: async () => ({ hosts: listHostRows().map((r) => ({ ...hostSummary(r, isOnline(r.id)), health: computeHealth(r.id) })) }),
 });
 
 export const getInventoryTool = createTool({

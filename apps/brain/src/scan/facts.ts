@@ -2,6 +2,7 @@
 // (with a fallback to the stored inventory when a daemon does not support a query yet).
 import { CONFIG_PATHS, QUERY_NAMES, type InventorySnapshot, type QueryName } from "@prohori/shared";
 import { getHostRow, getInventory } from "../db";
+import { blockReason } from "../health";
 import { isOnline, queryHost } from "../gateway";
 import { closedPortsOf, isLoopback, sourcesOf } from "./engine";
 
@@ -24,6 +25,8 @@ export function hostFacts(hostId: string, sourcePackage: string | null): HostFac
   const row = getHostRow(hostId);
   const inv = getInventory(hostId);
   if (!row || !inv) return { error: `no inventory for host ${hostId}` };
+  const why = blockReason(hostId);
+  if (why) return { error: `host ${row.name} cannot be assessed (${why}); its stored inventory is not trustworthy` };
   return factsFromInventory(hostId, row.name, inv, sourcePackage);
 }
 
@@ -97,6 +100,8 @@ export async function hostQuery(hostId: string, name: string, params: Record<str
     // the stored inventory has no per-package file lists: never answer with unrelated data
     return { source: "stored_inventory", rows: [], error: `live query failed (${liveError}); file lists are only available live from the daemon (host offline or daemon too old)` };
   }
+  const why = blockReason(hostId);
+  if (why) return { source: "stored_inventory", rows: [], error: `live query failed (${liveError}) and the stored inventory cannot be trusted: ${why}` };
   const inv = getInventory(hostId);
   if (!inv) return { source: "stored_inventory", rows: [], error: `live query failed (${liveError}) and no stored inventory` };
   const note = `live query unavailable (${liveError}); answered from the stored inventory collected ${inv.collectedAt}`;
