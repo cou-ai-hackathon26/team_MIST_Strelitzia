@@ -1,0 +1,21 @@
+{
+  "name": "prohori",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "setup": "bun install && cd apps/daemon && bun run build",
+    "brain": "cd apps/brain && bun run dev",
+    "web": "cd apps/web && bun run dev",
+    "web:prod": "cd apps/web && bun run build && bun run start",
+    "daemon:build": "cd apps/daemon && bun run build",
+    "targets:up": "docker compose -f infra/docker-compose.yml up -d --build",
+    "targets:down": "docker compose -f infra/docker-compose.yml down",
+    "targets:reset": "docker compose -f infra/docker-compose.yml up -d --force-recreate target-a target-b target-c target-d",
+    "healthcheck": "bun --env-file=.env scripts/healthcheck.ts",
+    "eval": "bun --env-file=.env scripts/eval.ts",
+    "prompt-audit": "bun scripts/prompt-audit.ts"
+  }
+}

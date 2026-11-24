@@ -1,0 +1,22 @@
+{
+  "scenarios": [
+    {
+      "id": "php2shell",
+      "runs": 3,
+      "expect": [
+        { "host": "bank-web-01", "status": "exposed", "priority": "critical" },
+        { "host": "bank-web-02", "status": "not_affected", "priority": "info" },
+        { "host": "bank-batch-01", "status": "vulnerable_not_exposed", "priority": "medium" }
+      ]
+    },
+    {
+      "id": "regresshion",
+      "runs": 1,
+      "expect": [
+        { "host": "bank-ssh-01", "status": "exposed", "priority": "high" },
+        { "host": "bank-web-02", "status": "not_affected", "priority": "info" },
+        { "host": "bank-batch-01", "status": "vulnerable_not_exposed", "priority": "medium" }
+      ]
+    }
+  ]
+}

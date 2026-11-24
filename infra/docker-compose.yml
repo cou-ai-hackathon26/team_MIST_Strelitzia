@@ -1,0 +1,91 @@
+# Prohori dev targets: four demo servers + a mail catcher.
+#   docker compose -f infra/docker-compose.yml up -d --build
+# The daemon binary dir apps/daemon/bin is bind-mounted at /opt/prohori/bin (build first: bun run daemon:build).
+# (A directory mount, not a single file: Docker Desktop loses single-file mounts when the binary is rebuilt.)
+# Rebuilding the daemon only needs a container restart, not an image rebuild.
+# PROHORI_BRAIN_URL can be overridden from the shell (e.g. if port 4400 is taken on the host).
+name: prohori
+
+x-target: &target
+  build:
+    context: ./targets
+  init: true
+  cap_add: [NET_ADMIN]   # firewall_port action + firewall inventory (iptables in the container netns)
+  restart: unless-stopped
+  extra_hosts: ["host.docker.internal:host-gateway"]
+  # Pinned resolvers: Docker snapshots the host's resolv.conf when a container starts, so a later host DNS change
+  # (e.g. Tailscale MagicDNS rewriting it) would leave running targets unable to resolve the apt mirrors.
+  dns: [1.1.1.1, 8.8.8.8]
+
+services:
+  target-a:
+    <<: *target
+    build:
+      context: ./targets
+      # NGINXWEBUI: lab stub of nginxWebUI 3.5.7 on :8080 (internal network only, not published) for advisory judgments
+      args: { ROLE: web, PHP_BUILD: "8.3.6-0maysync1", NGINXWEBUI: "3.5.7" }
+    image: prohori-target-a
+    hostname: bank-web-01
+    ports: ["8081:80"]
+    volumes:
+      - ../apps/daemon/bin:/opt/prohori/bin:ro
+    environment:
+      PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
+      PROHORI_HOST_ID: web-a
+      PROHORI_TOKEN: dev-token-a
+
+  target-b:
+    <<: *target
+    build:
+      context: ./targets
+      # SSH: openssh-server at the latest noble-security build (patched), sshd on :22
+      # .13 is superseded in the live archive, so it is installed from a dated snapshot (APT_SNAPSHOT, see Dockerfile)
+      args: { ROLE: web, PHP_BUILD: "8.3.6-0ubuntu0.24.04.13", APT_SNAPSHOT: "20261101T000000Z", SSH: server, SSH_BUILD: "" }
+    image: prohori-target-b
+    hostname: bank-web-02
+    ports: ["8082:80"]
+    volumes:
+      - ../apps/daemon/bin:/opt/prohori/bin:ro
+    environment:
+      PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
+      PROHORI_HOST_ID: web-b
+      PROHORI_TOKEN: dev-token-b
+
+  target-c:
+    <<: *target
+    build:
+      context: ./targets
+      # SSH: openssh-client only (vulnerable noble release build), no sshd
+      args: { ROLE: batch, PHP_BUILD: "8.3.6-0maysync1", SSH: client, SSH_BUILD: "1:9.6p1-3ubuntu13" }
+    image: prohori-target-c
+    hostname: bank-batch-01
+    volumes:
+      - ../apps/daemon/bin:/opt/prohori/bin:ro
+    environment:
+      PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
+      PROHORI_HOST_ID: batch-c
+      PROHORI_TOKEN: dev-token-c
+
+  target-d:
+    <<: *target
+    build:
+      context: ./targets
+      # No PHP / web server. openssh-* pinned to the noble release build (vulnerable), sshd on 0.0.0.0:22.
+      args: { ROLE: ssh, SSH: server, SSH_BUILD: "1:9.6p1-3ubuntu13" }
+    image: prohori-target-d
+    hostname: bank-ssh-01
+    volumes:
+      - ../apps/daemon/bin:/opt/prohori/bin:ro
+    environment:
+      PROHORI_BRAIN_URL: ${PROHORI_BRAIN_URL:-ws://host.docker.internal:4400/agent}
+      PROHORI_HOST_ID: ssh-d
+      PROHORI_TOKEN: dev-token-d
+
+  mailhog:
+    image: axllent/mailpit:latest
+    container_name: prohori-mailhog
+    restart: unless-stopped
+    ports: ["1025:1025", "8025:8025"]
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"

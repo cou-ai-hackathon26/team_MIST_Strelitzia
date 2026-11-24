@@ -1,0 +1,11 @@
+Package: nginxwebui
+Version: __VERSION__
+Architecture: all
+Maintainer: Prohori Lab <lab@prohori.invalid>
+Depends: perl-base
+Section: web
+Priority: optional
+Homepage: https://github.com/cym1102/nginxWebUI
+Description: nginxWebUI web admin panel for nginx (Prohori lab stub)
+ Lab stand-in for advisory-judgment demos: installs the package metadata, a
+ process named nginxwebui and an HTTP login page on :8080. No command execution.

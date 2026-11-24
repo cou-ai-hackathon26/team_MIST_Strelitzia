@@ -1,0 +1,11 @@
+node_modules
+docs/
+.env
+*.db
+*.db-*
+dist
+.next
+apps/daemon/bin
+.mastra
+tsconfig.tsbuildinfo
+apps/web/AGENTS.md

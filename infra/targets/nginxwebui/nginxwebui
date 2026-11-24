@@ -1,0 +1,46 @@
+#!/usr/bin/perl
+# Prohori lab STUB of nginxWebUI (a web admin panel for nginx) — for advisory-judgment demos only.
+# It only imitates what an inventory/scan can see: the package version, a process named "nginxwebui" and an HTTP
+# listener on :8080 serving a login page. It does NOT implement nginxWebUI and never executes commands: the
+# /AdminPage/conf/runCmd path of CVE-2023-54419 answers with a refusal.
+use strict;
+use warnings;
+use IO::Socket::INET;
+
+my $VERSION = "3.5.7";
+my $port = $ENV{NGINXWEBUI_PORT} || 8080;
+$0 = "nginxwebui";  # process name as osquery/ps report it (comm is capped at 15 chars)
+$SIG{PIPE} = "IGNORE";
+$SIG{TERM} = sub { exit 0 };
+
+my $srv = IO::Socket::INET->new(LocalAddr => "0.0.0.0", LocalPort => $port, Proto => "tcp", Listen => 16, ReuseAddr => 1)
+  or die "nginxwebui: cannot listen on :$port: $!\n";
+my $log;
+if (open($log, ">>", "/var/log/nginxwebui.log")) { select((select($log), $| = 1)[0]); } else { $log = undef; }
+
+my $login = <<"HTML";
+<!doctype html><html><head><meta charset="utf-8"><title>nginxWebUI</title></head>
+<body style="font-family:sans-serif;max-width:360px;margin:80px auto">
+<h2>nginxWebUI</h2><p>version $VERSION</p>
+<form method="post" action="/adminPage/login/login">
+<p><input name="name" placeholder="username"></p><p><input name="pass" type="password" placeholder="password"></p>
+<p><button>Login</button></p></form>
+<p style="color:#888;font-size:12px">Prohori lab stub &mdash; login page only.</p></body></html>
+HTML
+
+while (my $c = $srv->accept) {
+  $c->autoflush(1);
+  my $line = <$c> // "";
+  while (my $h = <$c>) { last if $h =~ /^\r?\n$/; }
+  my ($method, $path) = $line =~ m{^(\S+)\s+(\S+)};
+  $path //= "/";
+  print $log scalar(gmtime) . " " . ($c->peerhost // "?") . " $line" if $log;
+  my ($status, $type, $body);
+  if ($path =~ m{/conf/runCmd}i) {
+    ($status, $type, $body) = ("403 Forbidden", "application/json", qq({"success":false,"status":"403","msg":"Prohori lab stub: command execution is not implemented"}\n));
+  } else {
+    ($status, $type, $body) = ("200 OK", "text/html; charset=utf-8", $login);
+  }
+  print $c "HTTP/1.1 $status\r\nServer: nginxWebUI/$VERSION\r\nContent-Type: $type\r\nContent-Length: " . length($body) . "\r\nConnection: close\r\n\r\n$body";
+  close $c;
+}
