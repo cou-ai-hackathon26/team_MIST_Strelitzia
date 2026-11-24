@@ -1,9 +1,11 @@
 // Sentinel evaluation: replays each demo scenario against the live brain and scores the verdicts.
 // Usage: bun run eval [--runs N] [--scenario <id>]      (needs a running brain + lab; reads the root .env)
-// Per run: reset all → wait for rollbacks → release the scenario → scan until its findings are complete →
+// Per run: full reset (recreates the lab servers, switches CVE scanning off) → wait until every lab server reports a
+// fresh inventory → allow CVE scanning (which starts a scan) → scan until the scenario's findings are complete →
 // compare status/priority per host with scripts/eval-scenarios.json, and check every finding has an investigation
-// (≥1 step) and, unless not_affected, a non-empty remediation plan. Exit 1 on any mismatch. Resets at the end.
-import type { ActionRecord, Finding, HostSummary, StatusResponse } from "@prohori/shared";
+// (≥1 step) and, unless not_affected, a non-empty remediation plan. Exit 1 on any mismatch. Resets at the end, which
+// leaves CVE scanning off again.
+import type { Finding, HostSummary, StatusResponse } from "@prohori/shared";
 import expectations from "./eval-scenarios.json";
 
 const BRAIN = (process.env.BRAIN_URL ?? `http://127.0.0.1:${process.env.BRAIN_PORT ?? 4400}`).replace(/\/$/, "");
@@ -41,14 +43,22 @@ async function waitIdle() {
   await waitUntil("the running scan to finish", SCAN_DEADLINE_MS, async () => !(await status()).scan.running);
 }
 
-async function resetAll() {
-  const r = await api<{ restoring: string[]; failed: string[] }>("POST", "/demo/reset", {});
-  if (r.failed.length) console.warn(`  reset could not roll back: ${r.failed.join("; ")}`);
-  // rollbacks: daemon applies them, the brain re-scans; wait until no action is mid-flight
-  await waitUntil("rollbacks to complete", 5 * 60_000, async () => {
-    const acts = await api<ActionRecord[]>("GET", "/actions");
-    return !acts.some((a) => a.progress && ["applying", "rolling_back", "rechecking"].includes(a.progress.phase));
+/** Every host online, assessable, and with an inventory received after `sinceMs` (i.e. from the recreated server). */
+async function waitHostsReady(sinceMs: number) {
+  await waitUntil("the lab servers to come back with a fresh inventory", 4 * 60_000, async () => {
+    const hs = (await status()).hosts;
+    return hs.length > 0 && hs.every((h) => h.status === "online"
+      && (!h.health || (h.health.state === "ok" && !!h.health.lastInventoryAt && Date.parse(h.health.lastInventoryAt) >= sinceMs)));
   });
+}
+
+async function resetAll() {
+  const t = Date.now();
+  // Full reset: cancels running work, wipes findings/actions/reports, recreates the lab servers, scanning off
+  const r = await api<{ restoring: string[]; failed: string[] }>("POST", "/demo/reset", {});
+  if (r.failed.length) console.warn(`  reset problems: ${r.failed.join("; ")}`);
+  await sleep(5000); // the containers are recreated in the background; let the old daemons drop first
+  await waitHostsReady(t);
   await waitIdle();
   return r.restoring;
 }
@@ -61,23 +71,28 @@ interface RunResult {
 
 async function runScenario(id: string, cves: string[], expect: Expect[], run: number): Promise<RunResult> {
   const restoring = await resetAll();
-  console.log(`\n[${id} #${run}] reset done${restoring.length ? ` (rolled back: ${restoring.join("; ")})` : ""}; releasing ${cves.join(", ")}`);
+  console.log(`\n[${id} #${run}] reset done${restoring.length ? ` (${restoring.join("; ")})` : ""}; allowing CVE scanning for ${cves.join(", ")}`);
   const hosts = await api<HostSummary[]>("GET", "/hosts");
   const nameOf = new Map(hosts.map((h) => [h.id, h.name]));
-  await api("POST", "/demo/inject", { scenarioId: id });
+  await api("POST", "/demo/inject", { scenarioId: id }); // scenario bookkeeping only; scans are gated by the setting below
+  let seen = (await status()).scan.lastFinishedAt;
   const t0 = Date.now();
+  await api("PUT", "/settings", { cveScanEnabled: true }); // "Allow CVE Scan": the brain starts a scan right away
   let scans = 0;
   let scanMs: number | null = null;
   let findings: Finding[] = [];
   const complete = (fs: Finding[]) => expect.every((e) => cves.every((c) => fs.some((f) => f.cveId === c && nameOf.get(f.hostId) === e.host)));
   while (Date.now() - t0 < SCAN_DEADLINE_MS) {
     await waitIdle();
-    const before = (await status()).scan.lastFinishedAt;
-    const r = await api<{ started: boolean }>("POST", "/scan");
-    if (!r.started) { await sleep(2000); continue; }
+    if ((await status()).scan.lastFinishedAt === seen) {
+      // no scan has finished since we last looked (the one started by enabling may not have begun yet): run one
+      const r = await api<{ started: boolean }>("POST", "/scan");
+      if (!r.started) { await sleep(2000); continue; }
+      await waitUntil("scan", SCAN_DEADLINE_MS, async () => { const x = (await status()).scan; return !x.running && x.lastFinishedAt !== seen; });
+    }
     scans++;
-    await waitUntil("scan", SCAN_DEADLINE_MS, async () => { const s = (await status()).scan; return !s.running && s.lastFinishedAt !== before; });
     const s = (await status()).scan;
+    seen = s.lastFinishedAt;
     scanMs = s.lastStartedAt && s.lastFinishedAt ? Date.parse(s.lastFinishedAt) - Date.parse(s.lastStartedAt) : null;
     findings = (await api<Finding[]>("GET", "/findings")).filter((f) => cves.includes(f.cveId));
     if (s.lastResult?.error) console.warn(`  scan error: ${s.lastResult.error}`);
@@ -111,7 +126,7 @@ async function runScenario(id: string, cves: string[], expect: Expect[], run: nu
     }
   }
   const ok = rows.every((r) => r.ok);
-  console.log(`  ${ok ? "PASS" : "FAIL"} in ${secs(latencyMs)} (inject → verdicts; ${scans} scan(s), last scan ${scanMs !== null ? secs(scanMs) : "?"})`);
+  console.log(`  ${ok ? "PASS" : "FAIL"} in ${secs(latencyMs)} (scan allowed → verdicts; ${scans} scan(s), last scan ${scanMs !== null ? secs(scanMs) : "?"})`);
   for (const r of rows) {
     console.log(`  ${r.ok ? "ok  " : "FAIL"} ${r.host.padEnd(14)} ${r.cve.padEnd(16)} ${`${r.status}/${r.priority}`.padEnd(32)} expected ${r.expected.padEnd(32)} steps=${r.steps} plan=${r.plan}${r.note ? `  ← ${r.note}` : ""}${r.guardrail ? `\n         guardrail: ${r.guardrail}` : ""}`);
   }
@@ -148,7 +163,7 @@ async function main() {
     try { await resetAll(); } catch (e) { console.error(`final reset failed: ${(e as Error).message}`); }
   }
   console.log("\n=== score ===");
-  console.log("scenario      run  result  checks   inject→verdict  last scan  scans");
+  console.log("scenario      run  result  checks   allow→verdict   last scan  scans");
   for (const r of results) {
     const pass = r.rows.filter((x) => x.ok).length;
     console.log(`${r.scenario.padEnd(13)} ${String(r.run).padEnd(4)} ${(r.ok ? "PASS" : "FAIL").padEnd(7)} ${`${pass}/${r.rows.length}`.padEnd(8)} ${secs(r.latencyMs).padEnd(15)} ${(r.scanMs !== null ? secs(r.scanMs) : "-").padEnd(10)} ${r.scans}`);
