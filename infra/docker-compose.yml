@@ -13,6 +13,9 @@ x-target: &target
   cap_add: [NET_ADMIN]   # firewall_port action + firewall inventory (iptables in the container netns)
   restart: unless-stopped
   extra_hosts: ["host.docker.internal:host-gateway"]
+  # Pinned resolvers: Docker snapshots the host's resolv.conf when a container starts, so a later host DNS change
+  # (e.g. Tailscale MagicDNS rewriting it) would leave running targets unable to resolve the apt mirrors.
+  dns: [1.1.1.1, 8.8.8.8]
 
 services:
   target-a:

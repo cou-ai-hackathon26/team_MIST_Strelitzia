@@ -26,9 +26,18 @@ const priorityLabel = (p: string) => PRIORITY_LABEL[p] ?? p;
 
 export const scanContexts = new Map<string, ScanContext>();
 const IO = z.object({ scanId: z.string() });
+export class ScanCancelled extends Error {
+  constructor() { super("scan cancelled by an environment reset"); this.name = "ScanCancelled"; }
+}
+/** Throws if a reset cancelled this scan. DB writes are synchronous, so checking at step start and after every await
+ *  guarantees a cancelled scan never writes findings, reports, proposals, emails or audit entries. */
+export function assertLive(ctx: ScanContext) {
+  if (ctx.cancelled) throw new ScanCancelled();
+}
 const ctxOf = (scanId: string) => {
   const c = scanContexts.get(scanId);
   if (!c) throw new Error(`scan context ${scanId} missing`);
+  assertLive(c);
   return c;
 };
 
@@ -79,6 +88,7 @@ const extractAdvisories = createStep({
   execute: async ({ inputData }) => {
     const ctx = ctxOf(inputData.scanId);
     for (const c of ctx.candidates.filter(needsTextPath)) {
+      assertLive(ctx);
       const text = [c.title, c.summary, c.details, c.kevInfo?.shortDescription].filter(Boolean).join("\n\n");
       try {
         c.textOnly = await extractAdvisory(ctx.sessionId, c, text);
@@ -97,6 +107,7 @@ const advisoryAnalysis = createStep({
   execute: async ({ inputData }) => {
     const ctx = ctxOf(inputData.scanId);
     await mapPool(ctx.candidates, 2, async (c) => {
+      assertLive(ctx);
       const pkgs = ctx.hosts.flatMap((h) => c.sourcePkgs.map((s) => sourcesOf(h.inv).get(s)?.binaries.map((b) => b.name) ?? []).flat());
       const hostsContext = `${c.sourcePkgs.join(", ")} (installed binaries: ${[...new Set(pkgs)].sort().join(", ") || "n/a"})`;
       c.profile = await profileFor(`${ctx.sessionId}-profile-${c.cve}`, c, hostsContext, ctx.notes);
@@ -131,10 +142,13 @@ const investigate = createStep({
       }
     }
     await mapPool(work, 3, async ({ c, e }) => {
+      assertLive(ctx); // stop spending LLM calls (and querying hosts being recreated) once a reset cancelled the scan
       const t0 = Date.now();
       const k = await investigateHost(`${ctx.sessionId}-${e.hostId}-${c.cve}`, c, e, c.profile!);
+      assertLive(ctx);
       if (k.status !== "not_affected") {
         const { plan, error } = await planRemediation(`${ctx.sessionId}-${e.hostId}-${c.cve}-plan`, c, k, c.profile!);
+        assertLive(ctx);
         if (error) ctx.notes.push(`remediation planner failed for ${e.hostName}/${c.cve}, deterministic plan used: ${error}`);
         k.investigation.remediationPlan = plan;
         k.mitigations = mitigationsFromPlan(plan);
@@ -282,6 +296,7 @@ const reportStep = createStep({
         ...(g.alsoChecked.length ? ["### Also checked (not affected)", ...g.alsoChecked.map((f) => `- ${f.evidence.hostName}: ${f.rationale.split("\n")[0]}`)] : []),
       ])].join("\n\n");
     }
+    assertLive(ctx); // the report writer can take a while; a reset may have wiped the findings meanwhile
     const linked = groups.flatMap((g) => [...g.findings, ...g.alsoChecked]);
     const report = {
       id: newId("rep"),
@@ -302,12 +317,14 @@ const reportStep = createStep({
     const to = getSettings().reportEmails;
     try {
       await sendReportEmail(to, title, markdown);
+      if (ctx.cancelled) return inputData; // email already went out; don't resurrect the report after a reset
       report.emailedTo = to;
       report.emailedAt = nowIso();
       saveReport(report);
       ctx.reportsSent++;
       audit("report_sent", `Report "${title}" emailed to ${to.join(", ")}`, { data: { reportId: report.id, recipients: to, findingIds: report.findingIds } });
     } catch (e) {
+      if (ctx.cancelled) return inputData;
       audit("error", `Report ${report.id} saved but email failed: ${(e as Error).message}`, { data: { reportId: report.id } });
     }
     return inputData;

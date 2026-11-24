@@ -106,6 +106,8 @@ export interface ScanContext {
   reportsSent: number;
   proposedActions: number;
   notes: string[];
+  /** set by cancelScan() (environment reset): the scan stops at its next check and writes nothing more */
+  cancelled: boolean;
 }
 
 // ---------------------------------------------------------------- hold
