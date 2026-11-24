@@ -18,7 +18,7 @@ Prohori keeps a live inventory of every server, watches vulnerability intelligen
 |---|---|
 | **Project Name** | **Prohori** (featuring **Sentinel**, AI Security Analyst) |
 | **Team Name** | *MIST_Strelitzia* |
-| **Team Members** | • **K M Ahnaf Zamil**, **AKM Zawadur Rafid**, **Alif Ul Haque** |
+| **Team Members** |  **K M Ahnaf Zamil**, **AKM Zawadur Rafid**, **Alif Ul Haque** |
 
 ---
 
