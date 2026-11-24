@@ -107,6 +107,8 @@ export interface ScanContext {
   escalated: Finding[];
   reportId: string | null;
   reportsSent: number;
+  /** a report was queued: it is written + emailed in the background after the scan finishes */
+  reportQueued?: boolean;
   proposedActions: number;
   notes: string[];
   /** set by cancelScan() (environment reset): the scan stops at its next check and writes nothing more */

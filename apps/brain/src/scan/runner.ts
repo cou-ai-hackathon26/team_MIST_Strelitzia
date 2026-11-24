@@ -2,7 +2,7 @@
 import { Cron } from "croner";
 import type { ScanState } from "@prohori/shared";
 import { audit, getSettings, nowIso } from "../db";
-import { scanContexts, scanWorkflow } from "./workflow";
+import { backgroundReports, scanContexts, scanWorkflow } from "./workflow";
 import { markRechecked } from "../actions";
 import type { ScanContext } from "./engine";
 
@@ -60,6 +60,7 @@ export function cancelScan(): boolean {
   for (const ctx of scanContexts.values()) {
     if (!ctx.cancelled) { ctx.cancelled = true; cancelled = true; }
   }
+  for (const ctx of backgroundReports) ctx.cancelled = true; // a finished scan's report must not land in the wiped state
   if (activeScanId) {
     activeScanId = null;
     state.running = false;
@@ -88,19 +89,19 @@ async function runOnce(scanId: string, trigger: string, actor: string) {
       const err = result.status === "failed" ? (result.error as Error)?.message ?? String(result.error) : result.status;
       throw new Error(err);
     }
-    state.lastResult = { newFindings: ctx.newFindings.length, changedFindings: ctx.changedFindings.length, reportsSent: ctx.reportsSent };
+    state.lastResult = { newFindings: ctx.newFindings.length, changedFindings: ctx.changedFindings.length, reportsSent: ctx.reportQueued ? 1 : 0 };
     const fresh = [...ctx.triage.entries()].filter(([, t]) => !t.cached);
     const triaged = fresh.length
       ? `; Sentinel triaged ${fresh.length} CVE(s) → ${fresh.filter(([, t]) => t.decision === "investigate").length} to investigate`
       : "";
     audit(
       "scan_finished",
-      `Scan finished in ${((Date.now() - t0) / 1000).toFixed(1)}s: ${ctx.hosts.length} hosts checked, ${ctx.candidates.length} relevant CVE(s)${triaged}; ${ctx.newFindings.length} new, ${ctx.changedFindings.length} changed findings; ${ctx.reportsSent} report(s) sent; ${ctx.proposedActions} fix(es) proposed`,
+      `Scan finished in ${((Date.now() - t0) / 1000).toFixed(1)}s: ${ctx.hosts.length} hosts checked, ${ctx.candidates.length} relevant CVE(s)${triaged}; ${ctx.newFindings.length} new, ${ctx.changedFindings.length} changed findings; ${ctx.reportQueued ? "report queued (written and emailed in the background)" : "no report needed"}; ${ctx.proposedActions} fix(es) proposed`,
       {
         data: {
           scanId, trigger, hosts: ctx.hosts.length, rawMatches: ctx.rawMatchCount, candidates: ctx.candidates.map((c) => `${c.cve} (${c.triage.decidedBy}: ${c.triage.reason})`),
           triage: Object.fromEntries(fresh.map(([c, t]) => [c, `${t.decision} (${t.decidedBy}): ${t.reason}`])),
-          newFindings: ctx.newFindings.length, changedFindings: ctx.changedFindings.length, reportsSent: ctx.reportsSent,
+          newFindings: ctx.newFindings.length, changedFindings: ctx.changedFindings.length, reportQueued: !!ctx.reportQueued,
           reportId: ctx.reportId, proposedActions: ctx.proposedActions, notes: ctx.notes,
         },
       },

@@ -4,6 +4,7 @@
 // steps pass only { scanId } so workflow snapshots stay small.
 import { createStep, createWorkflow } from "@mastra/core/workflows";
 import { z } from "zod";
+import { env } from "../env";
 import type { ActionType, Finding } from "@prohori/shared";
 import { audit, getFindingByKey, getSettings, listFindings, newId, nowIso, saveFinding, saveReport, getFinding } from "../db";
 import { sendReportEmail } from "../mailer";
@@ -21,6 +22,8 @@ import { mapPool } from "./util";
 
 
 export const scanContexts = new Map<string, ScanContext>();
+/** finished scans whose report is still being written in the background (a reset must cancel these too) */
+export const backgroundReports = new Set<ScanContext>();
 const IO = z.object({ scanId: z.string() });
 export class ScanCancelled extends Error {
   constructor() { super("scan cancelled by an environment reset"); this.name = "ScanCancelled"; }
@@ -137,7 +140,7 @@ const investigate = createStep({
         work.push({ c, e });
       }
     }
-    await mapPool(work, 3, async ({ c, e }) => {
+    await mapPool(work, env.investigationConcurrency, async ({ c, e }) => {
       assertLive(ctx); // stop spending LLM calls (and querying hosts being recreated) once a reset cancelled the scan
       const t0 = Date.now();
       const k = await investigateHost(`${ctx.sessionId}-${e.hostId}-${c.cve}`, c, e, c.profile!);
@@ -222,7 +225,7 @@ const upsertFindings = createStep({
 
 const reportStep = createStep({
   id: "report",
-  description: "AI writes ONE markdown report for new/changed exposed or vulnerable findings; save + email",
+  description: "Queue ONE AI-written markdown report for new/changed exposed or vulnerable findings (written, saved + emailed in the background)",
   inputSchema: IO, outputSchema: IO,
   execute: async ({ inputData }) => {
     const ctx = ctxOf(inputData.scanId);
@@ -244,48 +247,55 @@ const reportStep = createStep({
     const kev = groups.some((g) => g.candidate.kev);
     const title = `[Prohori Sentinel] ${kev && exposedN ? "URGENT: " : ""}${cves.join(", ")} — ${exposedN} host(s) exposed, ${atRisk.size} host(s) need upgrade`;
 
-    let markdown: string;
-    try {
-      markdown = await writeReport(ctx.sessionId, { cves: groups, orgHosts: ctx.hosts.length });
-    } catch (e) {
-      ctx.notes.push(`AI report failed, using fallback: ${(e as Error).message}`);
-      markdown = [`# ${title}`, ...groups.flatMap((g) => [
-        `## ${g.candidate.cve} — ${g.candidate.title}`, `CISA KEV: ${g.candidate.kev ? "yes" : "no"}; CVSS ${g.candidate.cvss ?? "n/a"}`,
-        ...g.findings.map((f) => `### ${f.evidence.hostName} — ${f.status} (${f.priority})\n\n${f.rationale}\n\nMitigations:\n${f.mitigations.map((m, i) => `${i + 1}. ${m}`).join("\n")}`),
-        ...(g.alsoChecked.length ? ["### Also checked (not affected)", ...g.alsoChecked.map((f) => `- ${f.evidence.hostName}: ${f.rationale.split("\n")[0]}`)] : []),
-      ])].join("\n\n");
-    }
-    assertLive(ctx); // the report writer can take a while; a reset may have wiped the findings meanwhile
-    const linked = groups.flatMap((g) => [...g.findings, ...g.alsoChecked]);
-    const report = {
-      id: newId("rep"),
-      createdAt: nowIso(),
-      title,
-      findingIds: linked.map((f) => f.id),
-      markdown,
-      emailedTo: [] as string[],
-      emailedAt: null as string | null,
-    };
-    saveReport(report);
-    for (const f of linked) {
-      const cur = getFinding(f.id);
-      if (cur) { cur.reportId = report.id; saveFinding(cur); }
-    }
-    ctx.reportId = report.id;
-    audit("report_generated", `Report generated: "${title}" (${report.findingIds.length} findings)`, { data: { reportId: report.id, findingIds: report.findingIds, cves } });
-    const to = getSettings().reportEmails;
-    try {
-      await sendReportEmail(to, title, markdown);
-      if (ctx.cancelled) return inputData; // email already went out; don't resurrect the report after a reset
-      report.emailedTo = to;
-      report.emailedAt = nowIso();
+    // Off the critical path: the scan finishes once findings + proposals are saved; the AI report (~1 min) is
+    // written and emailed in the background. A reset meanwhile cancels the scan context, so nothing is saved.
+    ctx.reportQueued = true;
+    backgroundReports.add(ctx);
+    void (async () => {
+      let markdown: string;
+      try {
+        markdown = await writeReport(ctx.sessionId, { cves: groups, orgHosts: ctx.hosts.length });
+      } catch (e) {
+        console.warn(`[scan ${ctx.scanId}] AI report failed, using fallback: ${(e as Error).message}`);
+        markdown = [`# ${title}`, ...groups.flatMap((g) => [
+          `## ${g.candidate.cve} — ${g.candidate.title}`, `CISA KEV: ${g.candidate.kev ? "yes" : "no"}; CVSS ${g.candidate.cvss ?? "n/a"}`,
+          ...g.findings.map((f) => `### ${f.evidence.hostName} — ${f.status} (${f.priority})\n\n${f.rationale}\n\nMitigations:\n${f.mitigations.map((m, i) => `${i + 1}. ${m}`).join("\n")}`),
+          ...(g.alsoChecked.length ? ["### Also checked (not affected)", ...g.alsoChecked.map((f) => `- ${f.evidence.hostName}: ${f.rationale.split("\n")[0]}`)] : []),
+        ])].join("\n\n");
+      }
+      if (ctx.cancelled) return; // a reset wiped the findings meanwhile
+      const linked = groups.flatMap((g) => [...g.findings, ...g.alsoChecked]).filter((f) => getFinding(f.id));
+      const report = {
+        id: newId("rep"),
+        createdAt: nowIso(),
+        title,
+        findingIds: linked.map((f) => f.id),
+        markdown,
+        emailedTo: [] as string[],
+        emailedAt: null as string | null,
+      };
       saveReport(report);
-      ctx.reportsSent++;
-      audit("report_sent", `Report "${title}" emailed to ${to.join(", ")}`, { data: { reportId: report.id, recipients: to, findingIds: report.findingIds } });
-    } catch (e) {
-      if (ctx.cancelled) return inputData;
-      audit("error", `Report ${report.id} saved but email failed: ${(e as Error).message}`, { data: { reportId: report.id } });
-    }
+      for (const f of linked) {
+        const cur = getFinding(f.id);
+        if (cur) { cur.reportId = report.id; saveFinding(cur); }
+      }
+      ctx.reportId = report.id;
+      audit("report_generated", `Report generated: "${title}" (${report.findingIds.length} findings)`, { data: { reportId: report.id, findingIds: report.findingIds, cves, scanId: ctx.scanId } });
+      const to = getSettings().reportEmails;
+      try {
+        await sendReportEmail(to, title, markdown);
+        if (ctx.cancelled) return; // email already went out; don't resurrect the report after a reset
+        report.emailedTo = to;
+        report.emailedAt = nowIso();
+        saveReport(report);
+        ctx.reportsSent++;
+        audit("report_sent", `Report "${title}" emailed to ${to.join(", ")}`, { data: { reportId: report.id, recipients: to, findingIds: report.findingIds } });
+      } catch (e) {
+        if (ctx.cancelled) return;
+        audit("error", `Report ${report.id} saved but email failed: ${(e as Error).message}`, { data: { reportId: report.id } });
+      }
+    })().catch((e) => console.error(`[scan ${ctx.scanId}] background report failed`, e))
+      .finally(() => backgroundReports.delete(ctx));
     return inputData;
   },
 });

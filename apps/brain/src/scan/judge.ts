@@ -30,7 +30,7 @@ import {
 } from "./judgecore";
 import { clip, mapPool } from "./util";
 
-const HOST_CONCURRENCY = 3;
+const HOST_CONCURRENCY = env.investigationConcurrency;
 
 /** Stored alongside the judgment (not part of the API contract): what tracking needs later. */
 interface JudgmentInternal {

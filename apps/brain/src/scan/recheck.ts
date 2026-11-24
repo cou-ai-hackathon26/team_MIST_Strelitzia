@@ -7,6 +7,7 @@ import {
   audit, getFinding, getFindingByKey, getInventory, getProfile, listActions, listFindings, listJudgments, nowIso, saveAction, saveFinding,
 } from "../db";
 import { closeObsoleteProposals } from "../actions";
+import { env } from "../env";
 import { kevEntry } from "../vuln/kev";
 import { getVuln, upstreamRanges, type OsvVuln } from "../vuln/osv";
 import type { VersionRange } from "../vuln/versions";
@@ -122,7 +123,7 @@ export async function recheckHost(hostId: string, reason: string, sinceMs: numbe
   const notes: string[] = [];
   if (!fresh) notes.push("no refreshed inventory within 12 s; re-checked against the latest stored inventory");
 
-  const results = await mapPool(findings, 3, async (f) => {
+  const results = await mapPool(findings, env.investigationConcurrency, async (f) => {
     if (!live()) return null;
     const src = f.package?.name ?? null;
     if (!src || !sourcesOf(host.inv).has(src)) return { f, removed: true as const };
