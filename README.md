@@ -4,6 +4,8 @@
 
 Prohori keeps a live inventory of every server, watches vulnerability intelligence (OSV.dev, CISA KEV), and uses **Sentinel**, its AI security threat responder, to decide which servers are *actually* exposed to a new CVE — not just which ones report a matching version number. Sentinel emails the security team an incident report, discusses remediation with admins in chat, and applies only allow-listed, human-approved fixes through a hardened host daemon.
 
+It does not have to wait for the feeds either: paste a brand-new advisory link into the chat and Sentinel **judges it against every server on the spot** (the **Advisory Judge**), even before OSV or any scanner knows about the vulnerability.
+
 > In October 2026 a critical PHP flaw ("PHP2Shell", CVE-2026-109618 / CVE-2026-109619) pushed Bangladesh Bank, six commercial banks and the Ministry of Land offline for up to three days, because nobody could tell quickly which servers were really vulnerable. Prohori answers that question in minutes.
 
 ![Prohori overview](docs/images/overview.png)
@@ -40,7 +42,9 @@ Traditional vulnerability scanners (and basic version checks) match only headlin
 - **Rapid exposure triage before acting:** With zero hard-coded knowledge of any specific CVE or product, Sentinel reads upstream and distro advisories, extracts checkable exploitability preconditions, runs read-only checks on each affected server, and cites its evidence (`S1`, `S2`…) to classify each host as **Exposed**, **Vulnerable · Unreachable**, or **Not Affected** — so the response targets only the servers that need it instead of shutting everything down.
 - **Immediate incident alerting:** As soon as an exposure or severity escalation is confirmed, Sentinel emails the security team an incident report with the affected hosts, evidence, and a ranked response plan.
 - **Containment & remediation response:** Sentinel picks containment and fix actions from a strict allow-list (firewall a port, disable a risky feature, set a config directive, upgrade packages, restart a service), discusses operational trade-offs with admins in chat (e.g., keeping a web server online during business hours via a partial mitigation vs. firewalling port 80 vs. full package upgrade), and executes the chosen response through the hardened daemon **only after explicit human approval**.
-- **Verified recovery & rollback:** After every action Sentinel re-scans the host to confirm the threat is neutralized, and every change is snapshotted for one-click rollback if it breaks production.
+- **Day-zero advisory judging:** An admin can hand Sentinel an advisory URL that no feed has picked up yet. Sentinel reads the page, matches the product to installed packages, investigates every affected server with the same tools and guardrails as a scan, and shows what a version-only check would flag versus what is really exposed. One click turns the judgment into tracked findings and proposed fixes.
+- **Verified recovery & rollback:** After every approved action (or rollback) Sentinel re-checks just that server, in about 25 seconds, to confirm the threat is neutralized — and every change is snapshotted for one-click rollback if it breaks production.
+- **Trustworthy inventory only:** A server whose daemon goes silent or whose inventory goes stale is marked *cannot be assessed*: Sentinel stops assessing it and proposes nothing for it (a fix based on an old picture of a server could be wrong), and the dashboard alerts an admin.
 - **Deterministic code guardrails:** Post-model rules enforce hard guarantees — distro-patched builds are always *Not Affected*, uncited or contradicted reachability claims default to *Exposed* (flagged for confirmation), and firewall containment claims are verified against real `iptables` rules.
 
 ---
@@ -49,13 +53,16 @@ Traditional vulnerability scanners (and basic version checks) match only headlin
 
 ### Core Features
 
-- **Real-Time Asset Inventory (`prohori-daemon` + `osquery`):** Tracks OS release, source & binary packages, listening ports, active processes, systemd services, `iptables` rules, and allow-listed configs (`/etc/php/.../php.ini`, `/etc/ssh/sshd_config`, `/etc/nginx/...`).
+- **Real-Time Asset Inventory (`prohori-daemon` + `osquery`):** Tracks OS release, source & binary packages, listening ports, active processes, systemd services, `iptables` rules, and allow-listed configs (`/etc/php/.../php.ini`, `/etc/ssh/sshd_config`, `/etc/nginx/...`). Read-only named queries let Sentinel look deeper during an investigation, including `package_files` (which files a package actually ships — e.g. whether a vulnerable plugin is even installed).
+- **Advisory Judge (day-zero advisories):** Paste an advisory URL in chat ("Sentinel, judge this: …") or on the **Advisory Judge** page. Sentinel fetches and reads it, matches the product to installed packages on every server, decides whether each installed build is patched (from the Ubuntu/Debian record when one exists, otherwise from the advisory's own version ranges, flagged *needs confirmation*), investigates each affected server and plans remediation. The result shows the version-only verdict next to Sentinel's. **Track as Findings** turns it into findings and proposals under the normal approval rules, and later scans keep re-checking them.
 - **Distro-Ecosystem Vulnerability Matching:** Queries OSV.dev using the host's exact distro ecosystem (`Ubuntu:24.04:LTS`, `Debian:...`) and source package name so backported distro fixes are recognized automatically.
 - **Zero-Hardcoding Generalization (Enforced by Audit):** No prompt or scan code mentions any specific CVE ID, product, or mitigation (`bun run prompt-audit`). Sentinel generalizes across completely unseen vulnerabilities — verified against both **PHP2Shell** (`CVE-2026-109618` / `CVE-2026-109619`) and a held-out **regreSSHion** (`CVE-2024-6387` in OpenSSH) scenario (`bun run eval`).
 - **Evidence-Cited Precondition Testing:** Every finding displays Sentinel's full reasoning chain: triage justification, extracted threat profile, precondition checks with step citations (`S1`, `S2`…), guardrail overrides, and ranked remediation options.
-- **Automated Incident Reports via Email:** Generates executive and technical Markdown/HTML incident reports and delivers them via SMTP whenever a new exposure or severity escalation is detected.
-- **Conversational Threat Responder ("Sentinel" Chat):** Admins can ask why a host is safe, inspect live host facts, request custom reports, or push back on a proposed fix and ask Sentinel to revise the proposal in real time.
-- **Human-in-the-Loop Remediation & Rollback:** 5 allow-listed daemon actions (`firewall_port`, `upgrade_packages`, `nginx_disallow_uploads`, `set_config_directive`, `restart_service`) with local parameter validation, snapshot backup before execution, one-click rollback, and immediate post-action rescanning.
+- **Priority from real-world exploitation:** An exposed server is **Critical** when the vulnerability is on CISA KEV *or* its advisory reports exploitation in the wild (the rationale says which); otherwise High.
+- **Automated Incident Reports via Email:** Generates executive and technical Markdown/HTML incident reports and delivers them via SMTP whenever a new exposure or severity escalation is detected. Reports are written in the background, so findings and proposed fixes appear as soon as a scan has decided — not a minute later.
+- **Conversational Threat Responder ("Sentinel" Chat):** Admins can ask why a host is safe, inspect live host facts, request custom reports, have Sentinel judge a new advisory (with a live judgment card in the conversation), or push back on a proposed fix and ask Sentinel to revise the proposal in real time.
+- **Human-in-the-Loop Remediation & Rollback:** 6 allow-listed daemon actions (`firewall_port`, `upgrade_packages`, `nginx_block_multipart`, `set_php_directive`, `set_config_directive`, `restart_service`) with local parameter validation, snapshot backup before execution and one-click rollback. After every applied action or rollback, a **targeted re-check** re-assesses only that server as soon as its refreshed inventory arrives (~25 s), independent of the scan schedule.
+- **Inventory Trust (Cannot Be Assessed):** Servers whose daemon is offline, never reported, or whose inventory is stale are excluded from scans and re-checks and get no proposals until they report again; the Overview, asset cards and asset pages raise an alert.
 - **Threat Intelligence Explorer & Full Audit Trail:** Live CISA Known Exploited Vulnerabilities (KEV) browser cross-referenced against fleet inventory, plus an immutable audit log attributing every scan, verdict, email, chat revision, approval note, and rollback.
 
 ### Architecture & AI Pipeline
@@ -65,40 +72,61 @@ Traditional vulnerability scanners (and basic version checks) match only headlin
  │ prohori-daemon (TypeScript / Bun)   │   WSS   │ WebSocket gateway · SQLite · HTTP API                 │
  │  ├ osquery: packages, ports, config │ ──────▶ │ Mastra scan workflow (fixed steps, AI inside steps)   │
  │  └ allow-listed remediation runner  │ ◀────── │ Mastra chat agent "Sentinel" (tools, memory)          │
- └─────────────────────────────────────┘ outbound│ cron scans · report email · CISA KEV feed            │
-                                         only    └──────────────┬──────────────────────┬─────────────────┘
-                                                                │ OSV.dev, CISA KEV    │ LLM (Claude Haiku)
+ └─────────────────────────────────────┘ outbound│ Advisory Judge jobs · targeted re-checks · health     │
+                                         only    │ cron scans · report email · CISA KEV feed            │
+                                                 └──────────────┬──────────────────────┬─────────────────┘
+                                                                │ OSV.dev, CISA KEV,   │ LLM (Claude Haiku)
+                                                                │ advisory pages       │
                     ┌─ Dashboard (apps/web, Next.js) ───────────┴──────────────────────┘
-                    │ Overview · Findings · Reports · Sentinel chat · Approvals ·
-                    │ Threat Intelligence · Audit Log · Settings
+                    │ Overview · Findings · Reports · Sentinel chat · Advisory Judge ·
+                    │ Approvals · Threat Intelligence · Audit Log · Settings
                     └────────────────────────────────────────────────────────────────
 ```
 
-The scan pipeline is implemented as a deterministic 10-step **Mastra Workflow** (`apps/brain/src/scan/workflow.ts`) where AI agents perform reasoning inside bounded steps and deterministic code enforces guarantees between steps:
+The scan pipeline is implemented as a deterministic 10-step **Mastra Workflow** (`apps/brain/src/scan/workflow.ts`) where AI agents perform reasoning inside bounded steps and deterministic code enforces guarantees between steps. Scans run only while **Allow CVE Scan** is on (Settings → Demonstration Controls); a full lab scan takes roughly 35–60 s.
 
-1. **Inventory (`load-inventory`):** Loads the latest `osquery` snapshot reported by each connected daemon over outbound WebSockets.
+1. **Inventory (`load-inventory`):** Loads the latest `osquery` snapshot reported by each connected daemon over outbound WebSockets. Servers that cannot be assessed (daemon offline, never reported, stale inventory) are skipped and noted.
 2. **Detection (`osv-match`):** Batch-queries OSV.dev against each host's installed source packages and distro ecosystem, cross-referencing the CISA KEV feed.
 3. **Triage (`triage` — Sentinel AI + Code Floor Rule):** Sentinel reviews newly matched CVEs in batches and decides which warrant deep investigation (`investigate` vs. `ignore`) with a written rationale (e.g., pre-auth network RCE vs. local CLI bug). A deterministic floor rule in code always includes CISA KEV and distro-critical CVEs.
 4. **Fallback Text Extraction (`extract-advisories` — Sentinel AI, Zero Tools):** For advisories lacking structured version ranges, a tool-less LLM step extracts structured affected/fixed ranges from untrusted summary text.
 5. **Advisory Analysis (`advisory-analysis` — Sentinel AI, Read-Only Fetch):** For each candidate CVE, Sentinel reads the OSV record, distro notice, KEV entry, and up to 4 referenced vendor advisory URLs to synthesize a structured, cached **`ThreatProfile`** (Zod-validated): affected component, attack vector, checkable host preconditions, complete fix, and partial mitigations with explicit operational trade-offs.
 6. **Cross-Host Evidence (`cross-host-evidence` — Deterministic Code):** Computes baseline facts per host (distro patched vs. vulnerable build, listening sockets, Prohori firewall rules) and checks an evidence hash cache so unchanged `(host, CVE)` pairs skip redundant LLM calls.
 7. **Host Investigation & Guardrails (`investigate` — Sentinel AI + Code Guardrails):**
-   - **Investigation loop:** Per affected asset, Sentinel runs a bounded read-only tool loop (`runHostQuery` for `listening_ports`, `services`, `config_file`, `processes`, `firewall_rules`) to test every precondition in the threat profile and outputs a verdict with step citations (`S1`, `S2`…).
+   - **Investigation loop:** Per affected asset, Sentinel runs a bounded read-only tool loop (`runHostQuery` for `listening_ports`, `services`, `config_file`, `processes`, `firewall_rules`, `package_files`) to test every precondition in the threat profile and outputs a verdict with step citations (`S1`, `S2`…). Up to 6 assets are investigated in parallel (`SCAN_CONCURRENCY`).
    - **Code guardrails:** A build the distro marks as patched is unconditionally set to **Not Affected**. If Sentinel claims a vulnerable build is **Vulnerable · Unreachable** without citing evidence steps — or if its claim contradicts deterministic facts — code overrides the verdict to **Exposed**, flags `needsConfirmation`, and records the override in `investigation.guardrail`.
    - **Remediation planning:** Sentinel ranks containment, partial mitigation, and complete fix actions from the daemon's allow-list, respecting platform constraints (e.g., port `22/tcp` can never be firewalled, so for OpenSSH `regreSSHion` Sentinel selects `set_config_directive` with `LoginGraceTime 0` as partial mitigation and package upgrade as the complete fix).
 8. **Persistence & Auditing (`upsert-findings`):** Saves findings, detects status escalations/de-escalations, records audit events, and clears re-assessment indicators.
-9. **Incident Reporting (`report` — Sentinel AI + Nodemailer):** When new exposures or escalations occur, Sentinel writes a cohesive Markdown incident report contrasting exposed hosts, unreachable vulnerable hosts, and patched hosts, then emails it to the security team.
-10. **Auto-Proposal (`propose-fixes`):** Automatically creates `pending` action proposals for both immediate containment and the complete fix on exposed hosts, validating parameters against Zod schemas and closing obsolete proposals when findings resolve.
+9. **Auto-Proposal (`propose-fixes`):** Automatically creates `pending` action proposals for both immediate containment and the complete fix on exposed hosts (never for a host that cannot be assessed), validating parameters against Zod schemas and closing obsolete proposals when findings resolve. The upgrade is only proposed when a fixed build actually exists.
+10. **Incident Reporting (`report` — Sentinel AI + Nodemailer):** When new exposures or escalations occur, Sentinel writes a cohesive Markdown incident report contrasting exposed hosts, unreachable vulnerable hosts, and patched hosts, then emails it to the security team. This runs in the background: the scan is finished (and approvals are visible) before the report lands.
+
+A Full Reset cancels a running scan, a report still being written, running advisory judgments and re-checks, so nothing they produce can reappear in the wiped state.
+
+### Advisory Judge (day-zero advisories)
+
+`apps/brain/src/scan/judge.ts` — started from chat (`judgeAdvisory`) or the **Advisory Judge** page; runs as a background job (typically 1–2 min) and works with CVE scanning switched off.
+
+1. **Fetch:** the advisory URL is fetched through a hardened fetcher (`apps/brain/src/net/safefetch.ts`): https only, public addresses only, every redirect re-validated, size and content-type limits.
+2. **Extract (Sentinel AI, no tools):** the judged vulnerability's CVE id (an admin-supplied id wins), product, likely Debian/Ubuntu package names, affected version ranges, fixed versions and conditions. A page listing several bugs can be narrowed with a `focus` hint.
+3. **Match packages (code):** exact source package, then binary package, then a normalised name — never a loose prefix match. The reason for each match is shown.
+4. **Fix status per host (code):** from the Ubuntu/Debian record when OSV has one for that CVE (patched / vulnerable / no fixed build released), otherwise from the advisory's upstream ranges — then marked *needs confirmation*, because distro backports can't be confirmed from version numbers.
+5. **Threat profile, investigation, plan:** always a fresh profile from the advisory and its own links, then the scan's investigator, guardrails and remediation planner on every matched host.
+6. **Result:** an `AdvisoryJudgment` stored separately from findings, shown as a live card in chat and on its own page (version-only check vs Sentinel, per-host evidence, plan). It ignores `DEMO_IGNORE_CVES`, since the admin asked explicitly.
+7. **Track as Findings:** needs a real CVE id; writes the findings and proposes fixes with the scan's rules (approval still required) and stops ignoring that CVE in scans so later scans keep re-checking it.
+
+### Re-check After an Action
+
+When a daemon reports an approved action as applied (or rolled back), `apps/brain/src/scan/recheck.ts` waits for that server's refreshed inventory and re-assesses only that server's findings — no OSV sweep, no triage, and not dependent on **Allow CVE Scan**. Status changes are audited, obsolete proposals are closed, fixes are re-proposed if the server becomes exposed again (e.g. after a rollback), and the action's "re-assessing" indicator clears (~25 s).
 
 ### Conversational Agent ("Sentinel" Chat)
 
-The interactive Sentinel agent (`apps/brain/src/agent/prohori.ts`) uses **Mastra Agent** with persistent **Mastra Memory** (`@mastra/libsql`) and 15 read/propose tools (`listHosts`, `getInventory`, `runHostQuery`, `lookupCve`, `checkKev`, `findVulnsForPackage`, `listFindings`, `getFinding`, `getThreatProfile`, `runScanNow`, `sendReport`, `proposeFix`, `reviseProposal`, `getAction`, `listActions`).
+The interactive Sentinel agent (`apps/brain/src/agent/prohori.ts`) uses **Mastra Agent** with persistent **Mastra Memory** (`@mastra/libsql`) and 17 read/propose tools (`listHosts`, `getInventory`, `runHostQuery`, `lookupCve`, `checkKev`, `findVulnsForPackage`, `listFindings`, `getFinding`, `getThreatProfile`, `runScanNow`, `sendReport`, `proposeFix`, `reviseProposal`, `getAction`, `listActions`, `judgeAdvisory`, `getJudgment`).
 
 ### Safety Model
 
 - **The daemon runs only named `osquery` queries and allow-listed actions,** validating parameters locally with Zod and refusing to touch SSH port 22. It never executes arbitrary shell commands or raw SQL from the network.
-- **Sentinel can propose and revise, but never approve.** There is no approve tool in the agent's toolset; approval requires an authenticated human click (`POST /api/actions/:id/approve`), recorded with the admin's username and note.
-- **Advisory text is treated as untrusted data:** the AI steps that read external advisory text have no action or host tools, mitigating indirect prompt injection.
+- **Sentinel can propose and revise, but never approve — or track.** There is no approve tool in the agent's toolset; approval requires an authenticated human click (`POST /api/actions/:id/approve`), recorded with the admin's username and note. Turning a judgment into findings is likewise a human click.
+- **Advisory text is treated as untrusted data:** the AI steps that read external advisory text have no action or host tools, mitigating indirect prompt injection. Advisory URLs given by an admin (and the links on those pages) can only reach public https hosts (SSRF protection).
+- **No decisions from stale data:** a server that cannot be assessed gets no scans, no re-checks and no proposals until its daemon reports again.
 - **Every remediation requires human approval and supports rollback.** Before changing `iptables`, config directives, nginx snippets, or apt packages, the daemon records pre-change state on disk so any applied action can be rolled back cleanly.
 
 ---
@@ -128,6 +156,7 @@ The interactive Sentinel agent (`apps/brain/src/agent/prohori.ts`) uses **Mastra
 | **[OSV.dev API](https://osv.dev)** (`/v1/query`, `/v1/querybatch`, `/v1/vulns/:id`) | Primary open-source and Linux distribution vulnerability database. Queried with distro ecosystems (`Ubuntu:24.04:LTS`) and source package names to retrieve upstream ranges, Ubuntu/Debian fixed versions (`UBUNTU-CVE-*`, `DEBIAN-CVE-*`), CVSS vectors, and advisory reference URLs. |
 | **[CISA KEV Catalog](https://www.cisa.gov/known-exploited-vulnerabilities-catalog)** (`known_exploited_vulnerabilities.json`) | Live feed of vulnerabilities known to be actively exploited in the wild. Used as a mandatory floor rule in triage, for Critical priority escalation, and in the dashboard's **Threat Intelligence** tab. |
 | **Vendor & Distro Advisory Feeds** | Upstream advisories linked from OSV records (e.g., PHP announcements, Ubuntu Security Notices, OpenWall / Qualys disclosures) fetched read-only by Sentinel's advisory analyst to build `ThreatProfile` preconditions and mitigations. |
+| **Advisory pages supplied by an admin** | Any public https advisory (e.g. a VulnCheck, GitHub Security Advisory or vendor page) handed to the Advisory Judge; fetched read-only through the SSRF-hardened fetcher, together with the links on that page. |
 | **[Ubuntu Snapshot Archive](https://snapshot.ubuntu.com)** | Time-travel APT archive (`20261101T000000Z`) used when building the Docker lab targets so superseded historical package builds (`php8.3` `8.3.6-0maysync1` and `8.3.6-0ubuntu0.24.04.13`, `openssh` `1:9.6p1-3ubuntu13`) are reproducibly installed while keeping live archives available for runtime upgrades. |
 
 ---
@@ -141,7 +170,8 @@ The interactive Sentinel agent (`apps/brain/src/agent/prohori.ts`) uses **Mastra
   - *CVE Triage:* Filters noisy raw package matches down to genuinely dangerous vulnerabilities.
   - *Advisory Synthesis:* Reads unstructured vendor advisories and produces structured `ThreatProfile` objects with checkable preconditions and mitigation trade-offs.
   - *Host Investigation:* Chooses and executes read-only `osquery` inspection steps on each host and cites step IDs (`S1`, `S2`…) to prove or disprove network exposure.
-  - *Remediation Planning:* Selects and ranks allow-listed fixes around host constraints (such as non-firewallable SSH port 22).
+  - *Remediation Planning:* Selects and ranks allow-listed fixes around host constraints (such as non-firewallable SSH port 22), and says honestly when no fixed build exists yet or a vendor fix is not available as a distro package.
+  - *Advisory Judging:* Extracts the judged vulnerability from an arbitrary advisory page (product, package names, version ranges, fix availability) so it can be checked against the fleet before any feed lists it.
   - *Incident Reporting & Interactive Chat:* Writes email reports and collaborates with admins to review or revise remediation proposals.
 
 ### 2. Development AI Tools (Build & Engineering Process)
@@ -202,7 +232,7 @@ bun run setup                 # install dependencies & compile the Linux daemon 
 #### 1. Install and configure
 
 ```bash
-git clone git@gitlab.com:ahnaf-zamil/prohori.git
+git clone git@github.com:cou-ai-hackathon26/team_MIST_Strelitzia.git prohori
 cd prohori
 cp .env.example .env          # then set OPENCODE_API_KEY
 bun run setup                 # installs dependencies and builds the host daemon
@@ -211,7 +241,7 @@ bun run setup                 # installs dependencies and builds the host daemon
 #### 2. Start the lab assets
 
 ```bash
-bun run targets:up            # bank-web-01, bank-web-02, bank-batch-01, bank-ssh-01 + Mailpit
+bun run targets:up            # bank-web-01, bank-web-02, bank-batch-01, bank-ssh-01 + Mailpit (builds the images on first run)
 ```
 
 #### 3. Start Sentinel and the dashboard (two terminals)
@@ -245,7 +275,7 @@ All three lab assets report **PHP 8.3.6** — a version-number check flags every
 | bank-web-02 (`web-b`) | `8.3.6-0ubuntu0.24.04.13` (patched backport) | nginx + php-fpm on :80 | **Not Affected** |
 | bank-batch-01 (`batch-c`) | `8.3.6-0maysync1` (vulnerable) | PHP CLI only, nothing listening | **Vulnerable · Unreachable** |
 
-PHP2Shell is **embargoed** until you click **Replay Disclosure** for it in **Settings → Demonstration Controls**, so the live demo shows Sentinel discovering a new CVE on its own.
+CVE scanning is **off** after setup and after every **Reset Environment**, until you click **Allow CVE Scan** in **Settings → Demonstration Controls** — so the live demo shows Sentinel discovering the CVEs on its own.
 
 ### Held-Out Scenario: regreSSHion (`CVE-2024-6387` — Generalization Check)
 
@@ -257,6 +287,29 @@ A second scenario that no prompt or line of scan code mentions. It exercises eve
 | bank-web-02 (`web-b`) | latest noble-security (patched) | sshd on :22 | **Not Affected** |
 | bank-batch-01 (`batch-c`) | `1:9.6p1-3ubuntu13`, client only | no sshd | **Vulnerable · Unreachable** |
 
+### Advisory Judge Scenarios (day-zero advisories, CVE scanning off)
+
+Both CVEs are on the `DEMO_IGNORE_CVES` list, so no scan has ever looked at them; the admin pastes the advisory link into the Sentinel chat (*"Sentinel, judge this new advisory against our servers: <link>"*).
+
+**Cyrus SASL SRP authentication bypass (`CVE-2026-129483`)** — [VulnCheck advisory](https://www.vulncheck.com/advisories/cyrus-sasl-through-2.1.28-srp-authentication-bypass-via-plugins-srp-c). A pre-auth bypass with **no fix released** by any distribution; every lab server has the affected `cyrus-sasl2 2.1.28` build.
+
+| Asset | Version-only check | Sentinel | Why |
+|---|---|---|---|
+| all four | Vulnerable | **Vulnerable · Unreachable** | the library is only a dependency of `libldap2`; no process loads it, no SASL service listens, and `package_files` shows the SRP plugin isn't installed (Ubuntu builds without SRP) |
+
+The plan is advice only (no fixed build exists, nothing is exposed), so **Track as Findings** creates 4 findings and **0** proposals — and says why.
+
+**nginxWebUI authentication bypass RCE (`CVE-2023-54419`)** — [VulnCheck advisory](https://www.vulncheck.com/advisories/nginxwebui-3.0.0-3.5.8-authentication-bypass-rce-via-runcmd). Exploited in the wild (reported by the advisory; not on CISA KEV).
+
+| Asset | Version-only check | Sentinel | Why |
+|---|---|---|---|
+| bank-web-01 (`web-a`) | Vulnerable | **Exposed · Critical** | `nginxwebui 3.5.7` is installed and its admin UI listens on `0.0.0.0:8080` |
+| other three | — | not installed | |
+
+The plan's containment is **close 8080/tcp** (automatable); the fix — upgrade to 3.5.8 — is a vendor release, not a distro package, so it is advice. Track → approve the firewall rule → the targeted re-check moves bank-web-01 to **Vulnerable · Unreachable** in ~25 s. The fix status is *needs confirmation* because no distro record exists for this application.
+
+> **Lab note:** nginxWebUI on bank-web-01 is a **stub**, built into the image as a local `nginxwebui` 3.5.7 package (`infra/targets/nginxwebui/`). It serves only a login page on :8080 (internal Docker network, not published to the host) and refuses the vulnerable `runCmd` endpoint — it gives Sentinel a realistic package, process and listener to find without running exploitable code.
+
 ### Automated Evaluation & Prompt Audit
 
 ```bash
@@ -264,7 +317,7 @@ bun run eval           # replays PHP2Shell 3× and regreSSHion 1× against expec
 bun run prompt-audit   # fails if any prompt or scan code names a specific CVE, product or CVE-specific mitigation
 ```
 
-The evaluation checks every asset's verdict and priority, that each finding carries an investigation, and that every non-safe finding has a remediation plan. A newly disclosed CVE takes roughly 60–120 s from disclosure to verdict (Sentinel analyses the advisory once and caches the profile).
+The evaluation checks every asset's verdict and priority, that each finding carries an investigation, and that every non-safe finding has a remediation plan. A full lab scan takes roughly 35–60 s (Sentinel analyses each advisory once and caches the profile; up to 6 assets are investigated in parallel); an advisory judgment takes 1–2 minutes.
 
 The full presentation runbook — pre-flight checklist, click-by-click script, talking points and recovery — is in **[docs/DEMO.md](docs/DEMO.md)**.
 
@@ -279,11 +332,14 @@ All settings live in the root `.env` (see [`.env.example`](.env.example) for eve
 | `OPENCODE_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | Sentinel's model (Anthropic Messages API format) |
 | `BRAIN_PORT`, `BRAIN_API_TOKEN` | Brain port and the shared secret used by the dashboard |
 | `SEED_HOSTS` | Pre-enrolled lab assets (`id:name:token`) |
-| `DEMO_SCENARIOS`, `DEMO_REPLAY_HOLD` | Replayable disclosures and their CVEs (embargoed until replayed) |
+| `DEMO_IGNORE_CVES` | CVEs scans never report (e.g. the Advisory Judge demo CVEs). Judgments ignore this list; a CVE tracked from a judgment is re-checked by scans again |
+| `SCAN_CONCURRENCY` | Assets investigated in parallel in scans, judgments and re-checks (default 6, max 16) |
+| `INVENTORY_SEC`, `INVENTORY_STALE_SEC` | How often daemons send a full inventory, and when a silent server's inventory counts as stale (cannot be assessed) |
+| `DEMO_SCENARIOS`, `DEMO_REPLAY_HOLD` | Scenario labels for the demo controls (scans themselves are gated by **Allow CVE Scan**) |
 | `SMTP_HOST`, `SMTP_PORT`, `REPORT_FROM`, `DEFAULT_REPORT_EMAILS` | Report delivery |
 | `ADMIN_USERS`, `SESSION_SECRET` | Dashboard accounts and session signing |
 
-Scan interval and report recipients can also be changed at runtime in **Settings**.
+Scan interval and report recipients can also be changed at runtime in **Settings**, which also holds the **Demonstration Controls**: **Allow CVE Scan**, a daemon outage switch (take a lab server's daemon down to show *cannot be assessed*), and **Reset Environment** (clears findings, reports, approvals, judgments, chats and the event log, recreates the lab servers and switches scanning off; OSV/KEV caches and threat profiles are kept).
 
 ---
 
@@ -315,7 +371,7 @@ packages/
   shared/   Contracts shared by all apps: domain types, WebSocket protocol, named queries, actions, API
 infra/
   docker-compose.yml   Lab assets (Ubuntu 24.04: nginx/PHP builds, OpenSSH builds) and Mailpit
-  targets/             Lab asset image and sample bank site
+  targets/             Lab asset image, sample bank site and the nginxWebUI lab stub (targets/nginxwebui/)
   vm/install-daemon.sh Daemon installer for real Ubuntu servers (systemd, sudoers allow-list)
 scripts/
   healthcheck.ts       Pre-flight check

@@ -49,7 +49,7 @@ Verified data facts:
 - CISA KEV: `https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json` (fields `cveID, vendorProject, product, vulnerabilityName, dateAdded, shortDescription, knownRansomwareCampaignUse, dueDate`). Both PHP2Shell CVEs are listed.
 - NVD is flaky — never required.
 
-**Replay mode:** CVE ids in `DEMO_REPLAY_HOLD` (and their aliases like `UBUNTU-CVE-…`, `GHSA-…`) are ignored by scans until `POST /api/demo/inject`. Then the next scheduled scan "discovers" PHP2Shell as new → findings → report email. `POST /api/demo/reset` re-holds them and deletes their findings/reports/actions.
+**Replay mode (superseded):** originally CVE ids in `DEMO_REPLAY_HOLD` were ignored by scans until `POST /api/demo/inject`. Scans are now gated instead by `Settings.cveScanEnabled` ("Allow CVE Scan"; off by default and after every reset), and `DEMO_IGNORE_CVES` suppresses CVEs permanently. See Addendum 2.
 
 ## LLM (verified working)
 
@@ -115,3 +115,36 @@ regreSSHion specifics Sentinel must discover itself (never put them in prompts):
 - Action `set_config_directive {file, directive, value}` enforced against `CONFIG_DIRECTIVE_ALLOWLIST` on the daemon; `restart_service` accepts `ssh`.
 - `GET /api/profiles/:cveId`; `POST /api/demo/inject {scenarioId?}`, `POST /api/demo/reset {scenarioId?}`; `StatusResponse.demo.scenarios`.
 - `scripts/eval.ts` (`bun run eval`): resets, replays each scenario, waits, scores verdicts vs expected (and checks investigation + plan exist). `scripts/prompt-audit.ts` (`bun run prompt-audit`): fails if prompt/scan source contains CVE ids or scenario/product-specific strings.
+
+---
+
+# Addendum 2: Advisory Judge, targeted re-check, inventory trust
+
+## Advisory Judge (`apps/brain/src/scan/judge.ts`, `judgecore.ts`, `net/safefetch.ts`)
+The admin hands Sentinel an advisory URL the scan has never seen (chat tool `judgeAdvisory {url, cveId?, focus?}` or the Advisory Judge page). Background job (concurrency 1): safe fetch (https only, public addresses only, manual redirects re-validated, 2 MB / content-type limits) → tool-less extraction (focal CVE id — admin-supplied wins; product; source-package guess + aliases of the product itself; ranges incl. `lastAffected`; fixed versions; fix availability) → package matching on `sourcesOf(inv)` (exact source → binary → normalised; no prefix match) → per-host fix status `fixStatusFor`: distro record entry for (ecosystem, source) decides (fixed → `compareDebian`; no fixed version → vulnerable, "no fixed build released"); otherwise the advisory's upstream ranges (`advisory_only`, `needsConfirmation`). Not `buildEvidence`: in a scan "record exists but OSV didn't match" means patched, which is wrong here. → fresh `analyseAdvisory` (never the profile/triage cache; fetch allow-list = the page + its links) → `investigateHost` + `planRemediation` unchanged → `AdvisoryJudgment` (shared/domain.ts) stored in table `judgments`, separate from findings. Ignores `DEMO_IGNORE_CVES`.
+- `POST /api/judgments {url, cveId?, focus?, threadId?}` (202), `GET /api/judgments`, `GET /api/judgments/:id`, `POST /api/judgments/:id/track {cveId?}` (409 unless done and a real CVE id is known; never writes `ADV-…` ids).
+- Track: findings via the shared `buildFinding`, `saveProfile` + `saveTriage` under the CVE, proposals via `proposeFixesFor` (scan rules), audit `judgment_tracked`. `heldSet()` = `DEMO_IGNORE_CVES` minus tracked CVEs, so scans keep re-checking tracked findings.
+- Reset: `cancelJudgments()` (generation counter checked after every await); `wipeOperationalState()` deletes judgments and the triage/profile rows written by tracking.
+
+## Priority and planning
+- Exposed → critical when on CISA KEV **or** `ThreatProfile.exploitedInWild` (the advisory reports exploitation in the wild); the rationale says which.
+- No fixed build (`noFixedBuild`): no automatable `upgrade_packages`; the fix item is advice ("no fixed build released yet", or "upgrade to <vendor version>; not in the distribution archive" when the advisory names a vendor fix).
+- Extractor aliases must name the product itself, never software it manages (e.g. nginxWebUI ≠ nginx).
+
+## Targeted re-check after an action (`apps/brain/src/scan/recheck.ts`)
+Daemon `action_result` → `requestRecheck(hostId, reason, resultAt)` (one queue per host, coalescing): wait ≤12 s for an inventory collected after the result, then re-assess **only that host's findings** (candidate rebuilt from OSV + tracked judgment advisory, `evidenceFor` + `investigateHost` + `planRemediation`; unchanged evidence hash → skipped), write findings/audits, re-propose for exposed findings, close obsolete proposals, settle the host's `rechecking` actions. Not gated by `cveScanEnabled`; replaces the old "full scan after every action". Pending re-checks are re-run at startup; `cancelRechecks()` on reset.
+
+## Scan pipeline changes
+- Step order: … → `upsert-findings` → `propose-fixes` → `report`. The report is written and emailed in the background (`backgroundReports`; cancelled by reset), so a scan finishes once findings and proposals are saved.
+- Investigations run `env.investigationConcurrency` at a time (`SCAN_CONCURRENCY`, default 6) in scans, judgments and re-checks.
+- `cancelScan()` (reset) stops a running scan at its next check; a cancelled scan writes nothing.
+
+## Inventory trust (`apps/brain/src/health.ts`)
+`computeHealth(hostId)` → `HostHealth {state: ok|unassessable, kind: offline|stale|never_reported, alert, reason, …}` (60 s grace after a brain restart). `blockReason(hostId)` is checked by `loadHosts()` (scans), re-checks and `proposeFixesFor`: an unassessable host gets no assessment, no resolution of findings and no proposals. Audit `host_unassessable` / `host_recovered`; `HostSummary.health`; dashboard alerts. Demo: `POST /api/demo/outage {hostId, down}` stops/starts a lab container. Env `INVENTORY_SEC`, `INVENTORY_STALE_SEC`.
+
+## New daemon query
+`package_files {package}` (Debian package-name regex, `dpkg-query -L --`, ≤400 rows) → `{path}[]`; live only (no stored-inventory fallback).
+
+## Lab
+- `infra/targets/nginxwebui/`: build arg `NGINXWEBUI=3.5.7` on target-a installs a local `nginxwebui` .deb — a Perl stub serving a login page on :8080 (not published), `runCmd` refused — for judging CVE-2023-54419.
+- Targets use pinned DNS (`1.1.1.1`, `8.8.8.8`): Docker snapshots the host resolv.conf at container start.
